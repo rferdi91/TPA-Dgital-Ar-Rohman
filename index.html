@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TPQ Digital v0.36.2 — TPA Ar-Rahman</title>
+
+<!-- ⭐ ANTI-CACHE: paksa browser selalu ambil versi terbaru -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+
+<title>TPQ Digital v0.36.3 — TPA Ar-Rahman</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -98,7 +104,7 @@ var SYNC_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbyQMu1YUcLACYSrk
 // ============================================================
 // ⭐ VERSI APP & AUTO-UPDATE
 // ============================================================
-var APP_VERSION = "0.36.2";
+var APP_VERSION = "0.36.3";
 var VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 var VERSION_SNOOZE_KEY = "tpq_version_snooze_v1";
 
@@ -1202,6 +1208,7 @@ function checkForUpdate(silent) {
     .finally(function() { UPDATE.checking = false; });
 }
 
+// ⭐ FIX 2: applyUpdate dengan multi-strategy force reload
 function applyUpdate() {
   if (!UPDATE.available) return;
   saveLS("tpq_version_seen_v1", UPDATE.latestVersion);
@@ -1213,10 +1220,40 @@ function applyUpdate() {
 
   showToast("🚀 Memuat versi " + UPDATE.latestVersion + "...", "ok");
 
+  // Multi-strategy force reload
   setTimeout(function() {
+    // Strategy 1: Bersihkan cache storage (kalau ada)
+    if (window.caches && caches.keys) {
+      caches.keys().then(function(names) {
+        names.forEach(function(name) { caches.delete(name); });
+      }).catch(function(){});
+    }
+
+    // Strategy 2: Unregister service worker kalau ada
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        regs.forEach(function(reg) { reg.unregister(); });
+      }).catch(function(){});
+    }
+
+    // Strategy 3: Reload dengan cache-bust kuat
     var base = location.href.split("?")[0].split("#")[0];
-    var bust = "_v=" + Date.now();
-    location.href = base + "?" + bust;
+    var bust = "_v=" + Date.now() + "&r=" + Math.random().toString(36).slice(2, 8);
+
+    try {
+      location.replace(base + "?" + bust);
+    } catch (e) {
+      location.href = base + "?" + bust;
+    }
+
+    // Fallback terakhir: kalau 1 detik belum reload
+    setTimeout(function() {
+      try {
+        location.reload(true);
+      } catch (e) {
+        location.reload();
+      }
+    }, 1000);
   }, 500);
 }
 
@@ -2528,7 +2565,7 @@ function modalRekapBulananHTML() {
 }
 
 // ============================================================
-// ⭐ CETAK PENCAPAIAN
+// CETAK PENCAPAIAN
 // ============================================================
 window.printPencapaian = function(santriId) {
   var santri = app.santri.find(function(s) { return s.id === santriId; });
@@ -2675,7 +2712,7 @@ window.printPencapaian = function(santriId) {
 };
 
 // ============================================================
-// PENCAPAIAN — WALI SANTRI DIBATASI HANYA ANAKNYA
+// PENCAPAIAN
 // ============================================================
 window.setPencapaianKelas = function(k) { app.filterPencapaian.kelas = k; renderKeepScroll(); };
 window.togglePencapaianKelas = function(k) { app.openPencapaianKelas[k] = !app.openPencapaianKelas[k]; renderKeepScroll(); };
@@ -2797,7 +2834,7 @@ function renderPencapaian() {
 }
 
 // ============================================================
-// KAS — ⭐ URUT DARI DATA AWAL DI ATAS
+// KAS — URUT DARI DATA AWAL DI ATAS
 // ============================================================
 window.onFilterKas = function(k, v) { app.filterKas[k] = v; renderKeepScroll(); };
 window.openKasModal = function(mode, id) {
@@ -2810,7 +2847,6 @@ window.saveKas = function() {
   var g = function(id){ var e = document.getElementById(id); return e ? e.value.trim() : ""; };
   var m = app.modal; if (!m || m.type !== "kas") return;
   var data = { id: g("f_kas_id"), tanggal: g("f_kas_tanggal"), jenis: g("f_kas_jenis"), kategori: g("f_kas_kategori"), nominal: Number(g("f_kas_nominal")) || 0, ket: g("f_kas_ket") };
-  // ⭐ push (bukan unshift) supaya data baru muncul di bawah
   if (m.mode === "add") app.kas.push(data); else app.kas = app.kas.map(function(k){ return k.id === data.id ? data : k; });
   persist(); autoPush("sync_kas", app.kas);
   app.modal = null; renderModal(); render();
@@ -2826,7 +2862,6 @@ function renderKas() {
   var keluar = app.kas.filter(function(k){ return k.jenis === "Pengeluaran"; }).reduce(function(a,k){ return a + (Number(k.nominal) || 0); }, 0);
   var saldo = masuk - keluar;
 
-  // ⭐ Urutkan dari tanggal terlama → terbaru (data awal di atas)
   var kasSorted = app.kas.slice().sort(function(a, b) {
     var da = normalizeDateKey(a.tanggal) || "";
     var db = normalizeDateKey(b.tanggal) || "";
