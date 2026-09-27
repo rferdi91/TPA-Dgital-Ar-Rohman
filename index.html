@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TPQ Digital v0.36.1 — TPA Ar-Rahman</title>
+<title>TPQ Digital v0.36.2 — TPA Ar-Rahman</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -98,9 +98,9 @@ var SYNC_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbyQMu1YUcLACYSrk
 // ============================================================
 // ⭐ VERSI APP & AUTO-UPDATE
 // ============================================================
-var APP_VERSION = "0.36.1";                                    // ⬅️ samakan dgn LATEST_VERSION di backend saat rilis
-var VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;            // cek tiap 6 jam
-var VERSION_SNOOZE_KEY = "tpq_version_snooze_v1";              // localStorage key
+var APP_VERSION = "0.36.2";
+var VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+var VERSION_SNOOZE_KEY = "tpq_version_snooze_v1";
 
 var UPDATE = {
   available: false,
@@ -130,7 +130,7 @@ function renderLogo() {
 }
 
 // ============================================================
-// NORMALISASI NO. HP/WA — Selalu format +62
+// NORMALISASI NO. HP/WA
 // ============================================================
 function normalizePhone(p) {
   var s = String(p || "").replace(/[^0-9]/g, "");
@@ -330,9 +330,6 @@ var SYNC = {
 var LOGIN_SYNC = { status: "idle", msg: "", lastAttempt: 0 };
 var PUSH_QUEUE = { pending: {}, timer: null, retries: 0, maxRetries: 3, debounceMs: 700 };
 
-// ============================================================
-// AUTO-SYNC — polling periodik + refresh saat tab kembali aktif
-// ============================================================
 var AUTO_SYNC = {
   intervalMs: 25000,
   timer: null,
@@ -410,14 +407,12 @@ function pullSilentAndNotify() {
 
 document.addEventListener("visibilitychange", function() {
   if (document.hidden) return;
-  // Data refresh saat tab kembali aktif
   if (app.currentUser && SYNC.url && SYNC.url.indexOf("GANTI_") !== 0) {
     if (Object.keys(PUSH_QUEUE.pending).length === 0 && !PUSH_QUEUE.timer && !AUTO_SYNC.inProgress) {
       AUTO_SYNC.inProgress = true;
       pullSilentAndNotify().finally(function(){ AUTO_SYNC.inProgress = false; });
     }
   }
-  // Cek update kalau sudah >30 menit
   if ((Date.now() - UPDATE.lastCheck) > 30 * 60 * 1000) {
     checkForUpdate(true);
   }
@@ -1139,7 +1134,7 @@ window.syncPull = syncPull;
 window.pushAll = pushAll;
 
 // ============================================================
-// ⭐ AUTO UPDATE — cek versi terbaru & prompt user
+// AUTO UPDATE — cek versi terbaru & prompt user
 // ============================================================
 function compareVersion(a, b) {
   var pa = String(a || "0").split(".").map(function(x) { return parseInt(x, 10) || 0; });
@@ -2533,6 +2528,153 @@ function modalRekapBulananHTML() {
 }
 
 // ============================================================
+// ⭐ CETAK PENCAPAIAN
+// ============================================================
+window.printPencapaian = function(santriId) {
+  var santri = app.santri.find(function(s) { return s.id === santriId; });
+  if (!santri) { showToast("Santri tidak ditemukan", "err"); return; }
+
+  if (app.currentUser && app.currentUser.role === "walisantri" && app.currentUser.santriId !== santriId) {
+    showToast("🔒 Anda hanya bisa cetak pencapaian anak Anda", "err"); return;
+  }
+
+  var data = getPencapaian(santriId);
+  var today = new Date();
+  var tglCetak = String(today.getDate()).padStart(2, "0") + "/" + String(today.getMonth()+1).padStart(2, "0") + "/" + today.getFullYear();
+
+  var suratRows = data.surat.length === 0
+    ? '<tr><td colspan="4" class="empty">Belum ada data hafalan surat</td></tr>'
+    : data.surat.map(function(s, i) {
+        return '<tr>'
+          + '<td style="text-align:center">' + (i+1) + '</td>'
+          + '<td>' + escapeHTML(s.nama) + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(s.status || "-") + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(s.nilai || "-") + '</td>'
+          + '</tr>';
+      }).join("");
+
+  var doaRows = data.doa.length === 0
+    ? '<tr><td colspan="3" class="empty">Belum ada data hafalan doa</td></tr>'
+    : data.doa.map(function(d, i) {
+        return '<tr>'
+          + '<td style="text-align:center">' + (i+1) + '</td>'
+          + '<td>' + escapeHTML(d.nama) + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(d.status || "-") + '</td>'
+          + '</tr>';
+      }).join("");
+
+  var tugasRows = (data.tugas || []).length === 0
+    ? '<tr><td colspan="5" class="empty">Belum ada data tugas</td></tr>'
+    : data.tugas.map(function(t, i) {
+        return '<tr>'
+          + '<td style="text-align:center">' + (i+1) + '</td>'
+          + '<td>' + escapeHTML(t.nama) + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(t.jenis || "-") + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(t.status || "-") + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(t.nilai || "-") + '</td>'
+          + '</tr>';
+      }).join("");
+
+  var bacaanRows = (data.bacaan || []).length === 0
+    ? '<tr><td colspan="6" class="empty">Belum ada data bacaan</td></tr>'
+    : data.bacaan.map(function(b, i) {
+        return '<tr>'
+          + '<td style="text-align:center">' + (i+1) + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(formatDate(b.tanggal)) + '</td>'
+          + '<td>' + escapeHTML(b.bacaan) + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(b.halaman || "-") + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(b.nilai || "-") + '</td>'
+          + '<td style="text-align:center">' + escapeHTML(b.keterangan || "-") + '</td>'
+          + '</tr>';
+      }).join("");
+
+  var ringkasan = '📖 Surat Hafal: <b>' + data.surat.filter(function(x){return x.status==="Hafal";}).length + '/' + data.surat.length + '</b>';
+  ringkasan += ' &nbsp;|&nbsp; 🤲 Doa Hafal: <b>' + data.doa.filter(function(x){return x.status==="Hafal";}).length + '/' + data.doa.length + '</b>';
+  ringkasan += ' &nbsp;|&nbsp; 📝 Tugas: <b>' + (data.tugas || []).length + '</b>';
+  ringkasan += ' &nbsp;|&nbsp; 📖 Bacaan: <b>' + (data.bacaan || []).length + '</b>';
+
+  var html = '<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8">';
+  html += '<title>Pencapaian - ' + escapeHTML(santri.nama) + '</title>';
+  html += '<style>';
+  html += '  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
+  html += '  body { font-family: Arial, sans-serif; color: #111; margin: 20px; font-size: 12px; }';
+  html += '  .header { text-align: center; border-bottom: 3px double #0F766E; padding-bottom: 12px; margin-bottom: 16px; }';
+  html += '  .header h1 { margin: 0; font-size: 20px; color: #0F766E; letter-spacing: 0.5px; }';
+  html += '  .header h2 { margin: 4px 0; font-size: 13px; font-weight: normal; color: #333; }';
+  html += '  .header .sub { font-size: 10px; color: #666; margin-top: 4px; }';
+  html += '  .info { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 11px; gap: 20px; }';
+  html += '  .info table { border-collapse: collapse; flex: 1; }';
+  html += '  .info td { padding: 3px 8px 3px 0; vertical-align: top; }';
+  html += '  .info td:first-child { font-weight: bold; width: 90px; color: #555; }';
+  html += '  h3 { font-size: 13px; color: #0F766E; border-bottom: 2px solid #0F766E; padding-bottom: 4px; margin-top: 16px; margin-bottom: 8px; }';
+  html += '  table.data { border-collapse: collapse; width: 100%; margin-bottom: 8px; }';
+  html += '  table.data th, table.data td { border: 1px solid #333; padding: 5px 8px; font-size: 11px; }';
+  html += '  table.data th { background: #0F766E; color: white; text-align: center; font-weight: bold; }';
+  html += '  table.data tr:nth-child(even) td { background: #f0f9f8; }';
+  html += '  td.empty { text-align: center; color: #999; font-style: italic; padding: 12px; }';
+  html += '  .ringkasan { background: #e6f5f3; border-left: 4px solid #0F766E; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; border-radius: 4px; }';
+  html += '  .footer { margin-top: 30px; display: flex; justify-content: space-around; font-size: 11px; }';
+  html += '  .footer .ttd { text-align: center; width: 200px; }';
+  html += '  .footer .ttd .space { height: 60px; }';
+  html += '  .footer .ttd .line { border-top: 1px solid #333; padding-top: 4px; }';
+  html += '  .note { text-align: center; margin-top: 20px; font-size: 9px; color: #999; }';
+  html += '  @media print { body { margin: 8mm; } }';
+  html += '</style></head><body>';
+
+  html += '<div class="header">';
+  html += '<h1>LAPORAN PENCAPAIAN SANTRI</h1>';
+  html += '<h2>TPA Ar-Rahman — Jogonalan Lor</h2>';
+  html += '<div class="sub">Dicetak: ' + tglCetak + '</div>';
+  html += '</div>';
+
+  html += '<div class="info">';
+  html += '<table>';
+  html += '<tr><td>Nama</td><td>: <b>' + escapeHTML(santri.nama) + '</b></td></tr>';
+  html += '<tr><td>ID Santri</td><td>: ' + escapeHTML(santri.id) + '</td></tr>';
+  html += '<tr><td>Kelas</td><td>: ' + escapeHTML(santri.kelas) + '</td></tr>';
+  html += '<tr><td>Jenis Kelamin</td><td>: ' + escapeHTML(santri.kelamin || "-") + '</td></tr>';
+  html += '</table>';
+  html += '<table>';
+  html += '<tr><td>Wali</td><td>: ' + escapeHTML(santri.orangTua || "-") + '</td></tr>';
+  html += '<tr><td>Tgl Lahir</td><td>: ' + escapeHTML(isoToDisplay(santri.tglLahir)) + '</td></tr>';
+  html += '<tr><td>Umur</td><td>: ' + escapeHTML(hitungUmur(santri.tglLahir)) + '</td></tr>';
+  html += '<tr><td>Status</td><td>: ' + escapeHTML(santri.status || "-") + '</td></tr>';
+  html += '</table>';
+  html += '</div>';
+
+  html += '<div class="ringkasan"><b>Ringkasan:</b> ' + ringkasan + '</div>';
+
+  html += '<h3>📖 Hafalan Surat</h3>';
+  html += '<table class="data"><thead><tr><th style="width:40px">No</th><th>Nama Surat</th><th style="width:100px">Status</th><th style="width:100px">Nilai</th></tr></thead><tbody>' + suratRows + '</tbody></table>';
+
+  html += '<h3>🤲 Hafalan Doa</h3>';
+  html += '<table class="data"><thead><tr><th style="width:40px">No</th><th>Nama Doa</th><th style="width:100px">Status</th></tr></thead><tbody>' + doaRows + '</tbody></table>';
+
+  html += '<h3>📝 Tugas</h3>';
+  html += '<table class="data"><thead><tr><th style="width:40px">No</th><th>Nama Tugas</th><th style="width:80px">Jenis</th><th style="width:80px">Status</th><th style="width:80px">Nilai</th></tr></thead><tbody>' + tugasRows + '</tbody></table>';
+
+  html += '<h3>📖 Bacaan (Iqro / Al-Quran)</h3>';
+  html += '<table class="data"><thead><tr><th style="width:40px">No</th><th style="width:90px">Tanggal</th><th>Bacaan</th><th style="width:60px">Hal</th><th style="width:100px">Nilai</th><th style="width:80px">Ket</th></tr></thead><tbody>' + bacaanRows + '</tbody></table>';
+
+  html += '<div class="footer">';
+  html += '<div class="ttd"><div>Wali Santri</div><div class="space"></div><div class="line">' + escapeHTML(santri.orangTua || "....................") + '</div></div>';
+  html += '<div class="ttd"><div>Pengajar TPQ</div><div class="space"></div><div class="line">....................</div></div>';
+  html += '</div>';
+
+  html += '<div class="note">Dicetak dari TPQ Digital v' + escapeHTML(APP_VERSION) + ' — TPA Ar-Rahman Jogonalan Lor</div>';
+  html += '</body></html>';
+
+  var w = window.open("", "_blank");
+  if (!w) { showToast("Popup diblokir. Izinkan popup untuk mencetak.", "err"); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function() {
+    try { w.focus(); w.print(); } catch(e) { console.error(e); }
+  }, 400);
+};
+
+// ============================================================
 // PENCAPAIAN — WALI SANTRI DIBATASI HANYA ANAKNYA
 // ============================================================
 window.setPencapaianKelas = function(k) { app.filterPencapaian.kelas = k; renderKeepScroll(); };
@@ -2622,6 +2764,7 @@ function renderPencapaian() {
     return '<div class="space-y-4">'
       + '<div class="flex items-center justify-between flex-wrap gap-2">'
       +   '<h1 class="text-[24px] font-extrabold">Pencapaian Anak Saya</h1>'
+      +   '<button onclick="printPencapaian(\'' + mySantri.id + '\')" class="h-10 px-4 rounded-xl bg-[#0F766E] text-white font-bold flex items-center gap-2 text-[12px] shadow-md hover:bg-[#0e6b64]">' + ico("printer", 14) + ' Cetak</button>'
       + '</div>'
       + '<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-800 flex items-start gap-2">'
       +   ico("info", 14, "shrink-0 mt-0.5")
@@ -2654,7 +2797,7 @@ function renderPencapaian() {
 }
 
 // ============================================================
-// KAS
+// KAS — ⭐ URUT DARI DATA AWAL DI ATAS
 // ============================================================
 window.onFilterKas = function(k, v) { app.filterKas[k] = v; renderKeepScroll(); };
 window.openKasModal = function(mode, id) {
@@ -2667,7 +2810,8 @@ window.saveKas = function() {
   var g = function(id){ var e = document.getElementById(id); return e ? e.value.trim() : ""; };
   var m = app.modal; if (!m || m.type !== "kas") return;
   var data = { id: g("f_kas_id"), tanggal: g("f_kas_tanggal"), jenis: g("f_kas_jenis"), kategori: g("f_kas_kategori"), nominal: Number(g("f_kas_nominal")) || 0, ket: g("f_kas_ket") };
-  if (m.mode === "add") app.kas.unshift(data); else app.kas = app.kas.map(function(k){ return k.id === data.id ? data : k; });
+  // ⭐ push (bukan unshift) supaya data baru muncul di bawah
+  if (m.mode === "add") app.kas.push(data); else app.kas = app.kas.map(function(k){ return k.id === data.id ? data : k; });
   persist(); autoPush("sync_kas", app.kas);
   app.modal = null; renderModal(); render();
 };
@@ -2681,7 +2825,17 @@ function renderKas() {
   var masuk = app.kas.filter(function(k){ return k.jenis === "Pemasukan"; }).reduce(function(a,k){ return a + (Number(k.nominal) || 0); }, 0);
   var keluar = app.kas.filter(function(k){ return k.jenis === "Pengeluaran"; }).reduce(function(a,k){ return a + (Number(k.nominal) || 0); }, 0);
   var saldo = masuk - keluar;
-  var rows = app.kas.map(function(k){
+
+  // ⭐ Urutkan dari tanggal terlama → terbaru (data awal di atas)
+  var kasSorted = app.kas.slice().sort(function(a, b) {
+    var da = normalizeDateKey(a.tanggal) || "";
+    var db = normalizeDateKey(b.tanggal) || "";
+    if (da < db) return -1;
+    if (da > db) return 1;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+
+  var rows = kasSorted.map(function(k){
     var cls = k.jenis === "Pemasukan" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
     return '<tr><td class="font-mono text-[10px]">' + escapeHTML(k.id) + '</td><td>' + escapeHTML(isoToDisplay(k.tanggal)) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(k.jenis) + '</span></td><td>' + escapeHTML(k.kategori) + '</td><td class="text-right font-bold">' + vn(k.nominal) + '</td><td>' + escapeHTML(k.ket) + '</td><td><div class="flex justify-center gap-1"><button onclick="openKasModal(\'edit\',\'' + k.id + '\')" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 12) + '</button><button onclick="deleteKas(\'' + k.id + '\')" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 12) + '</button></div></td></tr>';
   }).join("");
@@ -2689,6 +2843,7 @@ function renderKas() {
   return '<div class="space-y-4">'
     + '<div class="flex justify-between flex-wrap gap-2"><h1 class="text-[24px] font-extrabold">Kas / Keuangan</h1><button onclick="openKasModal(\'add\',null)" class="h-10 px-5 rounded-xl bg-[#0F766E] text-white font-bold flex items-center gap-2">' + ico("plus", 16) + ' Tambah</button></div>'
     + '<div class="grid grid-cols-3 gap-3"><div class="bg-white rounded-2xl border p-4"><div class="text-[11px] text-gray-500">Pemasukan</div><div class="text-[16px] font-extrabold text-emerald-600">' + vn(masuk) + '</div></div><div class="bg-white rounded-2xl border p-4"><div class="text-[11px] text-gray-500">Pengeluaran</div><div class="text-[16px] font-extrabold text-red-600">' + vn(keluar) + '</div></div><div class="bg-gradient-to-br from-[#0F766E] to-[#0e9a8d] rounded-2xl p-4 text-white"><div class="text-[11px]">Saldo</div><div class="text-[16px] font-extrabold">' + vn(saldo) + '</div></div></div>'
+    + '<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-[11px] text-blue-800 flex items-start gap-2">' + ico("info", 14, "shrink-0 mt-0.5") + ' <span>Data ditampilkan urut dari <b>tanggal terlama (atas)</b> ke terbaru (bawah). Data baru otomatis muncul di bawah.</span></div>'
     + '<div class="bg-white rounded-2xl border overflow-hidden shadow-sm"><div class="overflow-x-auto"><table class="data-table table-kas text-[12px]"><thead><tr><th class="text-left">ID</th><th>Tanggal</th><th>Jenis</th><th>Kategori</th><th class="text-right">Nominal</th><th>Ket</th><th>Aksi</th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
 }
 
@@ -3133,7 +3288,11 @@ function modalPencapaianDetailHTML(sid) {
   }).join("");
   if ((data.bacaan || []).length === 0) bR = '<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">Kosong</td></tr>';
   return '<div class="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4 modal-fade" onclick="if(event.target===this)closeModal()"><div class="bg-white w-full max-w-[640px] rounded-t-2xl md:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto modal-slide" onclick="event.stopPropagation()">'
-    + '<div class="flex justify-between"><div class="font-bold">📖 Pencapaian</div><button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button></div>'
+    + '<div class="flex justify-between items-center"><div class="font-bold">📖 Pencapaian</div>'
+    + '<div class="flex gap-2">'
+    +   '<button onclick="printPencapaian(\'' + santri.id + '\')" class="h-8 px-3 rounded-lg bg-[#0F766E] text-white text-[11px] font-bold flex items-center gap-1">' + ico("printer", 12) + ' Cetak</button>'
+    +   '<button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button>'
+    + '</div></div>'
     + '<div class="bg-gradient-to-br from-[#0F766E] to-[#0e9a8d] rounded-2xl p-4 text-white"><div class="font-bold">' + escapeHTML(santri.nama) + '</div><div class="text-[11px] opacity-90">' + escapeHTML(santri.id) + ' • ' + escapeHTML(santri.kelas) + '</div></div>'
     + '<div class="bg-white rounded-2xl border overflow-hidden"><div class="p-3 bg-gray-50 border-b flex justify-between"><div class="font-bold text-[13px]">📝 Tugas</div>' + (canEdit ? '<button onclick="closeModal();openTugasModal(\'' + santri.id + '\')" class="text-[11px] px-3 py-1.5 rounded-lg bg-purple-600 text-white font-bold">+ Tambah</button>' : '') + '</div><table class="table-inner text-[12px]"><thead><tr><th>Tugas</th><th>Status</th>' + (canEdit ? '<th>Aksi</th>' : '') + '</tr></thead><tbody>' + tR + '</tbody></table></div>'
     + '<div class="bg-white rounded-2xl border overflow-hidden"><div class="p-3 bg-gray-50 border-b flex justify-between"><div class="font-bold text-[13px]">📖 Hafalan Surat</div>' + (canEdit ? '<button onclick="closeModal();openHafalanSuratModal(\'' + santri.id + '\')" class="text-[11px] px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold">+ Tambah</button>' : '') + '</div><table class="table-inner text-[12px]"><thead><tr><th>Surat</th><th>Status</th><th>Nilai</th>' + (canEdit ? '<th>Aksi</th>' : '') + '</tr></thead><tbody>' + sR + '</tbody></table></div>'
@@ -3175,7 +3334,7 @@ function render() {
     console.error("Render error:", e);
     html = '<div class="min-h-screen flex items-center justify-center p-4 bg-gray-50"><div class="bg-white rounded-2xl p-6 max-w-[480px]"><div class="text-4xl mb-2 text-center">⚠️</div><div class="font-bold text-center mb-3">Terjadi error</div><div class="err-box">' + escapeHTML(e.message) + '</div><button onclick="location.reload()" class="w-full h-10 rounded-xl bg-[#0F766E] text-white font-bold mt-3">Muat Ulang</button></div></div>';
   }
-  html += renderUpdateBanner();                 // ⭐ banner auto-update
+  html += renderUpdateBanner();
   html += '<div id="toasts" class="fixed top-4 right-4 z-[110] flex flex-col gap-2 pointer-events-none"></div>';
   html += '<div id="modal-root"></div>';
   root.innerHTML = html;
@@ -3219,10 +3378,7 @@ function init() {
     setTimeout(function() { syncPull(true).then(function(ok) { if (ok) showToast("Data tersinkron ✓", "ok"); }); }, 500);
   }
 
-  // ⭐ AUTO UPDATE: cek versi saat load (setelah 3 detik)
   setTimeout(function() { checkForUpdate(true); }, 3000);
-
-  // ⭐ AUTO UPDATE: cek tiap 6 jam
   setInterval(function() {
     if (document.hidden) return;
     checkForUpdate(true);
