@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TPQ Digital v0.36 — TPA Ar-Rahman</title>
+<title>TPQ Digital v0.36.1 — TPA Ar-Rahman</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -13,6 +13,7 @@
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
   .toast { animation: slideIn 0.3s ease; }
   @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .modal-fade { animation: fadeIn 0.2s ease; }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .modal-slide { animation: slideUp 0.3s ease; }
@@ -77,8 +78,6 @@
   @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
   .pulse-soft { animation: pulse-soft 1.5s ease-in-out infinite; }
   .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse-soft 1.5s ease-in-out infinite; }
-
-  /* ⭐ Safe area & touch target untuk mobile */
   .safe-top { padding-top: env(safe-area-inset-top, 0); }
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
   .safe-left { padding-left: env(safe-area-inset-left, 0); }
@@ -95,6 +94,24 @@
 // KONFIGURASI
 // ============================================================
 var SYNC_URL_DEFAULT = "https://script.google.com/macros/s/AKfycbyQMu1YUcLACYSrkaV-pnokaRDVEyuA4bt2ClbpJXFBE-5oScWzpEKAZWtycYYYUMKLoA/exec";
+
+// ============================================================
+// ⭐ VERSI APP & AUTO-UPDATE
+// ============================================================
+var APP_VERSION = "0.36.1";                                    // ⬅️ samakan dgn LATEST_VERSION di backend saat rilis
+var VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;            // cek tiap 6 jam
+var VERSION_SNOOZE_KEY = "tpq_version_snooze_v1";              // localStorage key
+
+var UPDATE = {
+  available: false,
+  checking: false,
+  latestVersion: "",
+  notes: "",
+  releasedAt: "",
+  appUrl: "",
+  error: "",
+  lastCheck: 0
+};
 
 var LOGO_GDRIVE_ID = "1iE0mZoa6N1veeGxj5pYjhGGgWLy-oXeU";
 var LOGO_GDRIVE_URLS = [
@@ -122,9 +139,7 @@ function normalizePhone(p) {
   if (s.indexOf("62") !== 0) s = "62" + s;
   return "+" + s;
 }
-function waLinkNumber(p) {
-  return String(p || "").replace(/[^0-9]/g, "");
-}
+function waLinkNumber(p) { return String(p || "").replace(/[^0-9]/g, ""); }
 function formatPhoneDisplay(p) {
   var s = String(p || "").replace(/[^0-9]/g, "");
   if (!s) return "-";
@@ -156,7 +171,6 @@ function generateSantriId() {
   return prefix + String(maxNum + 1).padStart(3, "0");
 }
 
-// ⭐ Helper: cek santri sudah punya akun wali atau belum
 function santriSudahPunyaWali(santriId, excludeUsername) {
   if (!santriId) return null;
   return app.users.find(function(u) {
@@ -395,11 +409,17 @@ function pullSilentAndNotify() {
 }
 
 document.addEventListener("visibilitychange", function() {
-  if (!document.hidden && app.currentUser && SYNC.url && SYNC.url.indexOf("GANTI_") !== 0) {
+  if (document.hidden) return;
+  // Data refresh saat tab kembali aktif
+  if (app.currentUser && SYNC.url && SYNC.url.indexOf("GANTI_") !== 0) {
     if (Object.keys(PUSH_QUEUE.pending).length === 0 && !PUSH_QUEUE.timer && !AUTO_SYNC.inProgress) {
       AUTO_SYNC.inProgress = true;
       pullSilentAndNotify().finally(function(){ AUTO_SYNC.inProgress = false; });
     }
+  }
+  // Cek update kalau sudah >30 menit
+  if ((Date.now() - UPDATE.lastCheck) > 30 * 60 * 1000) {
+    checkForUpdate(true);
   }
 });
 
@@ -733,7 +753,7 @@ function exportBackupJSON() {
     users: app.users, santri: app.santri, guru: app.guru,
     pencapaian: app.pencapaian, presensiSantri: app.presensiSantri, presensiGuru: app.presensiGuru,
     kas: app.kas, logWA: app.logWA, masukan: app.masukan, mutabaah: app.mutabaah,
-    exportedAt: nowISO(), version: "v0.36"
+    exportedAt: nowISO(), version: APP_VERSION
   };
   var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   var url = URL.createObjectURL(blob);
@@ -1118,6 +1138,143 @@ function renderSyncBadge() {
 window.syncPull = syncPull;
 window.pushAll = pushAll;
 
+// ============================================================
+// ⭐ AUTO UPDATE — cek versi terbaru & prompt user
+// ============================================================
+function compareVersion(a, b) {
+  var pa = String(a || "0").split(".").map(function(x) { return parseInt(x, 10) || 0; });
+  var pb = String(b || "0").split(".").map(function(x) { return parseInt(x, 10) || 0; });
+  var len = Math.max(pa.length, pb.length);
+  for (var i = 0; i < len; i++) {
+    var x = pa[i] || 0, y = pb[i] || 0;
+    if (x > y) return 1;
+    if (x < y) return -1;
+  }
+  return 0;
+}
+
+function getVersionCheckUrl() {
+  var base = SYNC.url || SYNC_URL_DEFAULT;
+  if (!base || base.indexOf("GANTI_") === 0) return "";
+  var sep = base.indexOf("?") !== -1 ? "&" : "?";
+  return base + sep + "action=version&t=" + Date.now();
+}
+
+function checkForUpdate(silent) {
+  if (UPDATE.checking) return Promise.resolve(false);
+  var url = getVersionCheckUrl();
+  if (!url) return Promise.resolve(false);
+
+  UPDATE.checking = true;
+  UPDATE.lastCheck = Date.now();
+  if (!silent) showToast("🔎 Memeriksa versi terbaru...", "info");
+
+  return fetch(url, { redirect: "follow" })
+    .then(function(res) { return checkJSONResponse(res, "version-check"); })
+    .then(function(resp) {
+      var data = (resp && resp.data) ? resp.data : resp;
+      if (!data || !data.version) throw new Error("Response versi tidak valid");
+
+      var latest = String(data.version);
+      var cmp = compareVersion(latest, APP_VERSION);
+
+      if (cmp > 0) {
+        UPDATE.available = true;
+        UPDATE.latestVersion = latest;
+        UPDATE.notes = data.notes || "";
+        UPDATE.releasedAt = data.releasedAt || "";
+        UPDATE.appUrl = data.appUrl || "";
+        UPDATE.error = "";
+        if (!silent) showToast("✨ Versi " + latest + " tersedia!", "ok");
+      } else {
+        UPDATE.available = false;
+        UPDATE.latestVersion = latest;
+        UPDATE.notes = data.notes || "";
+        UPDATE.releasedAt = data.releasedAt || "";
+        UPDATE.appUrl = data.appUrl || "";
+        UPDATE.error = "";
+        if (!silent) showToast("✅ Aplikasi sudah versi terbaru (" + APP_VERSION + ")", "ok");
+      }
+      render();
+      return true;
+    })
+    .catch(function(e) {
+      UPDATE.error = e.message || String(e);
+      console.warn("[version-check]", e);
+      if (!silent) showToast("⚠️ Gagal cek versi: " + (e.message || e), "err");
+      return false;
+    })
+    .finally(function() { UPDATE.checking = false; });
+}
+
+function applyUpdate() {
+  if (!UPDATE.available) return;
+  saveLS("tpq_version_seen_v1", UPDATE.latestVersion);
+
+  try { persist(); } catch (e) {}
+  if (Object.keys(PUSH_QUEUE.pending).length > 0) {
+    try { flushPushQueue(); } catch (e) {}
+  }
+
+  showToast("🚀 Memuat versi " + UPDATE.latestVersion + "...", "ok");
+
+  setTimeout(function() {
+    var base = location.href.split("?")[0].split("#")[0];
+    var bust = "_v=" + Date.now();
+    location.href = base + "?" + bust;
+  }, 500);
+}
+
+function snoozeUpdate() {
+  if (!UPDATE.available) return;
+  saveLS(VERSION_SNOOZE_KEY, { version: UPDATE.latestVersion, at: Date.now() });
+  UPDATE.available = false;
+  render();
+  showToast("⏰ Pengingat update ditunda 24 jam", "info");
+}
+function dismissUpdateBanner() { UPDATE.available = false; render(); }
+
+function renderUpdateBanner() {
+  if (!UPDATE.available) return "";
+  return '<div class="fixed top-0 left-0 right-0 z-[105] safe-top" style="animation:slideDown .35s ease">'
+    + '<div class="mx-auto max-w-[1100px] p-3">'
+    +   '<div class="bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-2xl shadow-2xl p-3 md:p-4 flex items-start gap-3 flex-wrap">'
+    +     '<div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">'
+    +       ico("zap", 20)
+    +     '</div>'
+    +     '<div class="flex-1 min-w-[200px]">'
+    +       '<div class="font-bold text-[14px] flex items-center gap-2 flex-wrap">'
+    +         '<span>✨ Versi baru tersedia!</span>'
+    +         '<span class="px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">v' + escapeHTML(UPDATE.latestVersion) + '</span>'
+    +         (UPDATE.releasedAt ? '<span class="text-[10px] opacity-80">• ' + escapeHTML(UPDATE.releasedAt) + '</span>' : '')
+    +       '</div>'
+    +       '<div class="text-[11px] opacity-90 mt-0.5">' + (UPDATE.notes ? escapeHTML(UPDATE.notes) : 'Klik Update untuk memuat versi terbaru.') + '</div>'
+    +       '<div class="text-[10px] opacity-70 mt-0.5">Anda pakai v' + escapeHTML(APP_VERSION) + ' → tersedia v' + escapeHTML(UPDATE.latestVersion) + '</div>'
+    +     '</div>'
+    +     '<div class="flex gap-2 items-center">'
+    +       '<button onclick="applyUpdate()" class="h-10 px-4 rounded-xl bg-white text-teal-700 font-extrabold text-[12px] hover:bg-teal-50 shadow-lg flex items-center gap-1.5">'
+    +         ico("download", 14) + ' Update Sekarang'
+    +       '</button>'
+    +       '<button onclick="snoozeUpdate()" class="h-10 px-3 rounded-xl bg-white/15 hover:bg-white/25 font-bold text-[11px]">'
+    +         'Nanti'
+    +       '</button>'
+    +       '<button onclick="dismissUpdateBanner()" class="w-10 h-10 rounded-xl bg-white/15 hover:bg-white/25 flex items-center justify-center">'
+    +         ico("x", 14)
+    +       '</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+window.checkForUpdate = checkForUpdate;
+window.applyUpdate = applyUpdate;
+window.snoozeUpdate = snoozeUpdate;
+window.dismissUpdateBanner = dismissUpdateBanner;
+
+// ============================================================
+// NAVIGASI
+// ============================================================
 window.goPage = function(page) {
   var role = app.currentUser ? app.currentUser.role : null;
   if (role === "walisantri" && ["akun", "guru", "sync", "kas", "logwa", "approval"].indexOf(page) !== -1) { showToast("Akses ditolak", "err"); return; }
@@ -1366,7 +1523,7 @@ function renderLogin() {
     + '<div class="w-full max-w-[440px] bg-white rounded-2xl shadow-2xl p-6 md:p-8 border border-gray-100">'
     +   '<div class="text-center mb-5">'
     +     '<div class="logo-box mx-auto mb-3 rounded-2xl" style="width:110px;height:110px;">' + renderLogo() + '</div>'
-    +     '<h1 class="text-[22px] font-extrabold text-[#0F766E]">TPQ Digital v0.36</h1>'
+    +     '<h1 class="text-[22px] font-extrabold text-[#0F766E]">TPQ Digital v' + escapeHTML(APP_VERSION) + '</h1>'
     +     '<p class="text-[12px] text-gray-500 mt-1">TPA Ar-Rahman · Jogonalan Lor</p>'
     +   '</div>'
     +   statusBar
@@ -1534,10 +1691,12 @@ function renderLayout() {
       + '</div></div>';
   }
 
-  // ⭐ Sidebar dengan padding nyaman & tombol logout lebih besar
   var sidebar = '<aside id="sidebar" class="w-64 bg-[#0F766E] fixed left-0 top-0 bottom-0 text-white z-40 flex flex-col transition-transform safe-top ' + (app.sidebarOpen ? "translate-x-0" : "-translate-x-full") + ' md:translate-x-0">'
     + '<div class="p-5 border-b border-white/10">'
-    +   '<div class="flex items-center gap-3"><div class="logo-box w-12 h-12 rounded-xl bg-white p-0.5 shrink-0">' + renderLogo() + '</div><div><div class="font-extrabold leading-none text-[15px]">TPQ Digital</div><div class="text-[10px] opacity-80">v0.36 · TPA Ar-Rahman</div></div></div>'
+    +   '<div class="flex items-center gap-3"><div class="logo-box w-12 h-12 rounded-xl bg-white p-0.5 shrink-0">' + renderLogo() + '</div><div class="flex-1 min-w-0"><div class="font-extrabold leading-none text-[15px]">TPQ Digital</div><div class="text-[10px] opacity-80 flex items-center gap-1 flex-wrap">'
+    +     '<span>v' + escapeHTML(APP_VERSION) + ' · TPA Ar-Rahman</span>'
+    +     (UPDATE.available ? '<button onclick="applyUpdate()" class="text-[9px] px-2 py-0.5 rounded-full bg-amber-400 text-amber-900 font-bold animate-pulse flex items-center gap-1">' + ico("zap", 8) + ' v' + escapeHTML(UPDATE.latestVersion) + '</button>' : '')
+    +   '</div></div></div>'
     +   '<div class="mt-4 bg-white/10 rounded-xl p-3"><div class="text-[11px] opacity-70">Login sebagai</div><div class="font-bold text-[13px] truncate">' + escapeHTML(user.name) + '</div><div class="text-[10px] opacity-80 mt-0.5">' + escapeHTML(user.role) + (user.kelas ? ' • ' + escapeHTML(user.kelas) : '') + (user.santriId ? ' • ' + escapeHTML(user.santriId) : '') + '</div>' + (user.role === "walisantri" && mySantri ? '<div class="mt-2 text-[10px] bg-white/15 rounded-lg p-2">👦 Anak: <b>' + escapeHTML(mySantri.nama) + '</b> • ' + escapeHTML(mySantri.kelas) + '</div>' : '') + '</div>'
     + '</div>'
     + '<nav class="flex-1 px-4 py-3 space-y-1.5 overflow-y-auto sidebar-scroll">' + sidebarLinks + '</nav>'
@@ -1551,7 +1710,6 @@ function renderLayout() {
 
   var overlay = app.sidebarOpen ? '<div class="fixed inset-0 bg-black/40 z-30 md:hidden" onclick="toggleSidebar()"></div>' : '';
 
-  // ⭐ Menu button jadi floating FAB di kanan atas — mudah dijangkau jempol
   var mobileBar = '<div class="md:hidden safe-top">'
     + '<div class="flex items-center gap-3 mb-4 pr-16"><div class="flex-1 min-w-0"><div class="text-[15px] font-extrabold text-[#0F766E] truncate">' + escapeHTML(user.name) + '</div><div class="text-[10px] text-gray-500 truncate">' + escapeHTML(user.role) + (user.kelas ? ' • Kelas ' + escapeHTML(user.kelas) : '') + '</div></div></div>'
     + '</div>'
@@ -1974,7 +2132,6 @@ function renderMutabaah() {
           var bc = santriData[d].bacaStatus === "sudah" ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">✅ ' + escapeHTML(santriData[d].bacaJenis || "") + '</span>' : (santriData[d].bacaStatus === "belum" ? '<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">✗</span>' : '<span class="text-gray-300">-</span>');
           return '<tr><td>' + (i + 1) + '</td><td class="text-[11px] whitespace-nowrap">' + escapeHTML(isoToDisplay(d)) + '</td><td class="text-center">🕌 ' + c2.jamaah + '</td><td class="text-center">🧎 ' + c2.munfarid + '</td><td class="text-center">❌ ' + c2.tidak + '</td><td class="text-center">' + bc + '</td></tr>';
         }).join("");
-    var isToday = (date === todayISO());
     return '<div class="space-y-4">'
       + '<h1 class="text-[24px] font-extrabold">Mutabaah Sholat & Baca</h1>'
       + '<div class="bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl p-4 text-white shadow-lg"><div class="font-bold text-[15px]">' + escapeHTML(mySantri.nama) + '</div><div class="text-[11px] opacity-90">' + escapeHTML(mySantri.id) + ' • Kelas ' + escapeHTML(mySantri.kelas) + '</div></div>'
@@ -2376,7 +2533,7 @@ function modalRekapBulananHTML() {
 }
 
 // ============================================================
-// PENCAPAIAN — ⭐ WALI SANTRI DIBATASI HANYA ANAKNYA
+// PENCAPAIAN — WALI SANTRI DIBATASI HANYA ANAKNYA
 // ============================================================
 window.setPencapaianKelas = function(k) { app.filterPencapaian.kelas = k; renderKeepScroll(); };
 window.togglePencapaianKelas = function(k) { app.openPencapaianKelas[k] = !app.openPencapaianKelas[k]; renderKeepScroll(); };
@@ -2573,8 +2730,41 @@ function renderSyncPage() {
   var logRows = SYNC.log.length === 0 ? '<div class="p-6 text-center text-gray-400 text-xs">Belum ada aktivitas</div>'
     : SYNC.log.map(function(l) { var cls = l.status === "ok" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"; return '<div class="flex items-center gap-2 px-3 py-2 border-b"><span class="text-[10px] text-gray-400 font-mono">' + fmtTime(l.time) + '</span><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + l.status + '</span><span class="text-[11px]">' + escapeHTML(l.action) + '</span></div>'; }).join("");
   var autoText = AUTO_SYNC.timer ? "🟢 Aktif (setiap " + (AUTO_SYNC.intervalMs/1000) + " detik)" : "⚪ Tidak aktif";
+
+  var updateCard = "";
+  if (UPDATE.available) {
+    updateCard = '<div class="bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-2xl p-4 shadow-lg">'
+      + '<div class="flex items-start gap-3 flex-wrap">'
+      +   '<div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">' + ico("zap", 20) + '</div>'
+      +   '<div class="flex-1 min-w-[200px]">'
+      +     '<div class="font-bold text-[14px]">✨ Update tersedia — v' + escapeHTML(UPDATE.latestVersion) + '</div>'
+      +     (UPDATE.notes ? '<div class="text-[11px] opacity-90 mt-0.5">' + escapeHTML(UPDATE.notes) + '</div>' : '')
+      +     (UPDATE.releasedAt ? '<div class="text-[10px] opacity-70 mt-0.5">Rilis: ' + escapeHTML(UPDATE.releasedAt) + '</div>' : '')
+      +   '</div>'
+      +   '<div class="flex gap-2">'
+      +     '<button onclick="applyUpdate()" class="h-9 px-3 rounded-xl bg-white text-teal-700 font-bold text-[11px]">Update</button>'
+      +     '<button onclick="dismissUpdateBanner()" class="h-9 px-3 rounded-xl bg-white/15 font-bold text-[11px]">Tutup</button>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
+  } else if (UPDATE.lastCheck > 0) {
+    updateCard = '<div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-[12px] text-emerald-800 flex items-center justify-between gap-2 flex-wrap">'
+      + '<div class="flex items-center gap-2">'
+      +   ico("check", 14)
+      +   '<span>Aplikasi <b>v' + escapeHTML(APP_VERSION) + '</b> — versi terbaru' + (UPDATE.latestVersion ? ' (server v' + escapeHTML(UPDATE.latestVersion) + ')' : '') + '</span>'
+      + '</div>'
+      + '<button onclick="checkForUpdate(false)" class="h-8 px-3 rounded-lg bg-white border border-emerald-200 text-emerald-700 text-[11px] font-bold">' + ico("refresh", 12) + ' Cek Ulang</button>'
+      + '</div>';
+  } else {
+    updateCard = '<div class="bg-white border rounded-2xl p-3 text-[12px] text-gray-600 flex items-center justify-between gap-2 flex-wrap">'
+      + '<span>Versi: <b>v' + escapeHTML(APP_VERSION) + '</b></span>'
+      + '<button onclick="checkForUpdate(false)" class="h-8 px-3 rounded-lg bg-[#0F766E] text-white text-[11px] font-bold">Cek Update</button>'
+      + '</div>';
+  }
+
   return '<div class="space-y-4">'
     + '<h1 class="text-[24px] font-extrabold">Sinkronisasi</h1>'
+    + updateCard
     + '<div class="' + sColor + ' border rounded-2xl p-4"><div class="font-bold text-[15px]">' + sText + '</div><div class="text-[11px] mt-1">Terakhir: ' + fmtTime(SYNC.lastSync) + '</div></div>'
     + '<div class="bg-white rounded-2xl border p-4 flex items-center justify-between"><div><div class="font-bold text-[13px]">🔄 Live Sync Otomatis</div><div class="text-[11px] text-gray-500">' + autoText + '</div></div><div class="flex gap-2"><button onclick="startAutoSync();render();" class="h-9 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">Aktifkan</button><button onclick="stopAutoSync();render();" class="h-9 px-3 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold">Matikan</button></div></div>'
     + '<div class="grid grid-cols-3 gap-2"><button onclick="syncPull()" class="h-14 rounded-2xl bg-blue-600 text-white font-bold">Pull</button><button onclick="pushAll()" class="h-14 rounded-2xl bg-emerald-600 text-white font-bold">Push All</button><button onclick="flushSyncNow()" class="h-14 rounded-2xl bg-amber-500 text-white font-bold">Flush</button></div>'
@@ -2971,6 +3161,9 @@ function modalAccountListHTML() {
   return '<div class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 modal-fade" onclick="if(event.target===this)closeModal()"><div class="bg-white w-full max-w-[440px] rounded-2xl p-5 max-h-[80vh] flex flex-col" onclick="event.stopPropagation()"><div class="flex justify-between mb-3"><div class="font-bold">Daftar Akun</div><button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button></div><div class="overflow-auto space-y-2">' + rows + '</div></div></div>';
 }
 
+// ============================================================
+// RENDER UTAMA
+// ============================================================
 function render() {
   var root = document.getElementById("app");
   if (!root) return;
@@ -2982,6 +3175,7 @@ function render() {
     console.error("Render error:", e);
     html = '<div class="min-h-screen flex items-center justify-center p-4 bg-gray-50"><div class="bg-white rounded-2xl p-6 max-w-[480px]"><div class="text-4xl mb-2 text-center">⚠️</div><div class="font-bold text-center mb-3">Terjadi error</div><div class="err-box">' + escapeHTML(e.message) + '</div><button onclick="location.reload()" class="w-full h-10 rounded-xl bg-[#0F766E] text-white font-bold mt-3">Muat Ulang</button></div></div>';
   }
+  html += renderUpdateBanner();                 // ⭐ banner auto-update
   html += '<div id="toasts" class="fixed top-4 right-4 z-[110] flex flex-col gap-2 pointer-events-none"></div>';
   html += '<div id="modal-root"></div>';
   root.innerHTML = html;
@@ -3001,6 +3195,9 @@ function render() {
   }
 }
 
+// ============================================================
+// INIT
+// ============================================================
 function init() {
   TODAY_ISO = todayISO();
   app.mutabaahDate = todayISO();
@@ -3021,6 +3218,16 @@ function init() {
   if (app.currentUser && SYNC.autoPull && SYNC.url && SYNC.url.indexOf("GANTI_") !== 0) {
     setTimeout(function() { syncPull(true).then(function(ok) { if (ok) showToast("Data tersinkron ✓", "ok"); }); }, 500);
   }
+
+  // ⭐ AUTO UPDATE: cek versi saat load (setelah 3 detik)
+  setTimeout(function() { checkForUpdate(true); }, 3000);
+
+  // ⭐ AUTO UPDATE: cek tiap 6 jam
+  setInterval(function() {
+    if (document.hidden) return;
+    checkForUpdate(true);
+  }, VERSION_CHECK_INTERVAL_MS);
+
   setInterval(function(){
     var el = document.getElementById("countdownText");
     if (!el) return;
