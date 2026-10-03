@@ -87,9 +87,6 @@
   .safe-right { padding-right: env(safe-area-inset-right, 0); }
   .btn-touch { min-width: 48px; min-height: 48px; }
   .sidebar-scroll { padding-bottom: 12px; }
-  /* ✅ FIX: tombol aksi mobile-friendly */
-  .btn-action { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
-  .btn-action svg { width: 16px; height: 16px; }
 </style>
 </head>
 <body>
@@ -225,7 +222,8 @@ var ICONS = {
   mosques: "M12 2 L8 5 v3 L4 10 v6 h4 v6 h8 v-6 h4 v-6 L16 8 V5 L12 2 z M12 4.5 L14 6 v4 L16 11 v3 h-2 v5 h-4 v-5 H8 v-3 L10 10 V6 L12 4.5 z",
   key: "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
   wifi_off: "M1 1l22 22 M16.72 11.06A10.94 10.94 0 0 1 19 12.55 M5 12.55a10.94 10.94 0 0 1 5.17-2.39 M10.71 5.05A16 16 0 0 1 22.58 9 M1.42 9a15.91 15.91 0 0 1 4.7-2.88 M8.53 16.11a6 6 0 0 1 6.95 0 M12 20h.01",
-  mail: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z M22 6l-10 7L2 6"
+  mail: "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z M22 6l-10 7L2 6",
+  home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10"
 };
 function ico(name, size, className) {
   size = size || 20;
@@ -529,35 +527,6 @@ function renderToasts() {
     return '<div class="toast px-4 py-2.5 rounded-xl shadow-lg text-white text-[13px] font-medium max-w-[400px] ' + bg + '">' + escapeHTML(t.msg) + '</div>';
   }).join("");
 }
-
-// ============================================================
-// ✅ FIX #1: CUSTOM CONFIRM (pengganti confirm() bawaan browser)
-// ============================================================
-var _confirmResolver = null;
-window.customConfirm = function(msg, onOk, onCancel, opts) {
-  opts = opts || {};
-  _confirmResolver = { onOk: onOk, onCancel: onCancel };
-  app.modal = {
-    type: "confirm",
-    msg: msg,
-    title: opts.title || "Konfirmasi",
-    okText: opts.okText || "Ya, Lanjut",
-    cancelText: opts.cancelText || "Batal",
-    danger: opts.danger !== false
-  };
-  renderModal();
-};
-window.confirmOk = function() {
-  var r = _confirmResolver; _confirmResolver = null;
-  app.modal = null; renderModal();
-  if (r && r.onOk) { try { r.onOk(); } catch (e) { console.error(e); } }
-};
-window.confirmCancel = function() {
-  var r = _confirmResolver; _confirmResolver = null;
-  app.modal = null; renderModal();
-  if (r && r.onCancel) { try { r.onCancel(); } catch (e) {} }
-};
-
 function getMySantri() {
   if (!app.currentUser || app.currentUser.role !== "walisantri" || !app.currentUser.santriId) return null;
   return app.santri.find(function(s) { return s.id === app.currentUser.santriId; }) || null;
@@ -748,8 +717,6 @@ function pushLogWA(penerima, kelas, pesan, wa, status) {
   saveLS("tpq_logwa_v17", app.logWA);
   return entry;
 }
-
-// ✅ FIX: broadcastAlpha pakai customConfirm
 function broadcastAlpha(scope) {
   if (app.currentUser && app.currentUser.role === "walisantri") { showToast("Wali santri tidak bisa broadcast", "err"); return; }
   var list;
@@ -763,22 +730,21 @@ function broadcastAlpha(scope) {
     list = flattenPresensi(false).filter(function(r){ return r.tanggal === app.presensiDate && r.status === "alpa"; });
   }
   if (list.length === 0) { showToast("Tidak ada Alpha " + (scope === "bulan" ? "bulan ini" : "tanggal terpilih"), "info"); return; }
-  customConfirm("Kirim pengingat WA ke " + list.length + " wali santri Alpha?", function() {
-    var count = 0;
-    list.forEach(function(r){
-      var s = app.santri.find(function(x){ return x.id === r.id; });
-      if (!s || !s.wa) return;
-      var pesan = "Assalamu'alaikum Ayah/Bunda " + (s.orangTua || "") + ",\n\n" +
-        "Ananda *" + s.nama + "* (" + s.id + ") tercatat *Alpha* di TPQ pada " + isoToDisplay(r.tanggal) + ".\n\n" +
-        "Mohon konfirmasi & perhatiannya. Jazakumullah khairan.\n\n— TPA Ar-Rahman";
-      pushLogWA(s.orangTua || s.nama, s.kelas, pesan, s.wa, "Pending");
-      count++;
-    });
-    saveLS("tpq_logwa_v17", app.logWA);
-    autoPush("sync_logwa", app.logWA);
-    showToast("✅ " + count + " log WA dibuat.", "ok");
-    render();
-  }, null, { title: "Broadcast WA", okText: "Kirim", danger: false });
+  if (!confirm("Kirim pengingat WA ke " + list.length + " wali santri Alpha?")) return;
+  var count = 0;
+  list.forEach(function(r){
+    var s = app.santri.find(function(x){ return x.id === r.id; });
+    if (!s || !s.wa) return;
+    var pesan = "Assalamu'alaikum Ayah/Bunda " + (s.orangTua || "") + ",\n\n" +
+      "Ananda *" + s.nama + "* (" + s.id + ") tercatat *Alpha* di TPQ pada " + isoToDisplay(r.tanggal) + ".\n\n" +
+      "Mohon konfirmasi & perhatiannya. Jazakumullah khairan.\n\n— TPA Ar-Rahman";
+    pushLogWA(s.orangTua || s.nama, s.kelas, pesan, s.wa, "Pending");
+    count++;
+  });
+  saveLS("tpq_logwa_v17", app.logWA);
+  autoPush("sync_logwa", app.logWA);
+  showToast("✅ " + count + " log WA dibuat.", "ok");
+  render();
 }
 
 function exportBackupJSON() {
@@ -1320,21 +1286,18 @@ window.goPage = function(page) {
   window.scrollTo(0, 0);
 };
 window.toggleSidebar = function() { app.sidebarOpen = !app.sidebarOpen; render(); };
-
-// ✅ FIX: logout pakai customConfirm
 window.logout = function() {
-  customConfirm("Yakin keluar dari aplikasi?", function() {
-    if (Object.keys(PUSH_QUEUE.pending).length > 0) {
-      if (PUSH_QUEUE.timer) clearTimeout(PUSH_QUEUE.timer);
-      flushPushQueue();
-    }
-    stopAutoSync();
-    app.currentUser = null; app.page = "login"; app.modal = null;
-    app.loginMode = "username";
-    LOGIN_SYNC.status = "idle"; LOGIN_SYNC.msg = "";
-    persist(); render();
-    setTimeout(function() { loginSyncAutoPull(); }, 300);
-  }, null, { title: "Logout", okText: "Ya, Keluar" });
+  if (!confirm("Yakin keluar?")) return;
+  if (Object.keys(PUSH_QUEUE.pending).length > 0) {
+    if (PUSH_QUEUE.timer) clearTimeout(PUSH_QUEUE.timer);
+    flushPushQueue();
+  }
+  stopAutoSync();
+  app.currentUser = null; app.page = "login"; app.modal = null;
+  app.loginMode = "username";
+  LOGIN_SYNC.status = "idle"; LOGIN_SYNC.msg = "";
+  persist(); render();
+  setTimeout(function() { loginSyncAutoPull(); }, 300);
 };
 
 // ============================================================
@@ -1721,8 +1684,7 @@ function renderLayout() {
     + '</div>'
     + '<nav class="flex-1 px-4 py-3 space-y-1.5 overflow-y-auto sidebar-scroll">' + sidebarLinks + '</nav>'
     + syncPanel
-    // ✅ FIX: padding bawah lebih besar + safe-area supaya tombol logout tidak tertutup
-    + '<div class="p-4 border-t border-white/10" style="padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));">'
+    + '<div class="p-4 pb-6 border-t border-white/10 safe-bottom">'
     +   '<button onclick="logout()" class="w-full h-12 rounded-xl bg-white/15 hover:bg-white/25 active:bg-white/30 font-bold flex items-center justify-center gap-2 text-[14px] btn-touch transition">'
     +     ico("logout", 18) + '<span>Keluar</span>'
     +   '</button>'
@@ -1926,8 +1888,6 @@ window.approveUser = function(username) {
   showToast("✅ Akun " + u.name + " disetujui" + msgExtra, "ok");
   render();
 };
-
-// ✅ FIX: rejectUser pakai customConfirm
 window.rejectUser = function(username) {
   var u = app.users.find(function(x) { return x.username === username; });
   if (!u) return;
@@ -1937,15 +1897,12 @@ window.rejectUser = function(username) {
     var uKelas = getTargetKelasForUser(u);
     if (uKelas !== myKelas) { showToast("Bukan kelas Anda", "err"); return; }
   }
-  customConfirm("Tolak pendaftaran " + u.name + "?", function() {
-    u.status = "rejected"; u.rejectedBy = app.currentUser.name;
-    persist(); autoPush("sync_users", app.users);
-    showToast("Pendaftaran " + u.name + " ditolak", "ok");
-    render();
-  });
+  if (!confirm("Tolak pendaftaran " + u.name + "?")) return;
+  u.status = "rejected"; u.rejectedBy = app.currentUser.name;
+  persist(); autoPush("sync_users", app.users);
+  showToast("Pendaftaran " + u.name + " ditolak", "ok");
+  render();
 };
-
-// ✅ FIX: deleteUserPending pakai customConfirm
 window.deleteUserPending = function(username) {
   var u = app.users.find(function(x) { return x.username === username; });
   if (!u) return;
@@ -1954,19 +1911,18 @@ window.deleteUserPending = function(username) {
   var msg = "Hapus permanen akun ini?";
   if (hasPending) msg += "\n\nData santri baru yang belum di-approve juga akan dihapus.";
   if (hasSantri) msg += "\n\n⚠️ HATI-HATI: ini juga akan menghapus data santri " + u.santriId + "!";
-  customConfirm(msg, function() {
-    app.users = app.users.filter(function(x) { return x.username !== username; });
-    if (u.santriId) {
-      app.santri = app.santri.filter(function(s) { return s.id !== u.santriId; });
-      delete app.pencapaian[u.santriId];
-      delete app.mutabaah[u.santriId];
-      autoPush("sync_santri", app.santri);
-      autoPush("sync_pencapaian", app.pencapaian);
-    }
-    persist(); autoPush("sync_users", app.users);
-    showToast("Akun dihapus", "ok");
-    render();
-  });
+  if (!confirm(msg)) return;
+  app.users = app.users.filter(function(x) { return x.username !== username; });
+  if (u.santriId) {
+    app.santri = app.santri.filter(function(s) { return s.id !== u.santriId; });
+    delete app.pencapaian[u.santriId];
+    delete app.mutabaah[u.santriId];
+    autoPush("sync_santri", app.santri);
+    autoPush("sync_pencapaian", app.pencapaian);
+  }
+  persist(); autoPush("sync_users", app.users);
+  showToast("Akun dihapus", "ok");
+  render();
 };
 
 function renderApproval() {
@@ -2190,13 +2146,10 @@ window.saveBalasanMasukan = function() {
   app.modal = { type: "masukanDetail", data: item };
   renderModal(); render();
 };
-
-// ✅ FIX: deleteMasukan pakai customConfirm
 window.deleteMasukan = function(id) {
-  customConfirm("Hapus masukan ini?", function() {
-    app.masukan = app.masukan.filter(function(x){ return x.id !== id; });
-    persist(); autoPush("sync_masukan", app.masukan); showToast("Dihapus", "ok"); app.modal = null; renderModal(); render();
-  });
+  if (!confirm("Hapus masukan ini?")) return;
+  app.masukan = app.masukan.filter(function(x){ return x.id !== id; });
+  persist(); autoPush("sync_masukan", app.masukan); showToast("Dihapus", "ok"); app.modal = null; renderModal(); render();
 };
 
 function renderMasukan() {
@@ -2251,7 +2204,7 @@ function renderSantri() {
   var rows = filtered.map(function(s, i) {
     var waliAkun = santriSudahPunyaWali(s.id);
     var waliIndicator = waliAkun ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold" title="@' + escapeHTML(waliAkun.username) + '">✓ Punya Akun</span>' : '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold">Belum Ada</span>';
-    return '<tr><td>' + (i + 1) + '</td><td class="font-mono text-[10px]">' + escapeHTML(s.id) + '</td><td class="font-medium">' + escapeHTML(s.nama) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-red-100 text-[#E31E24] font-bold text-[10px]">' + escapeHTML(s.kelas) + '</span></td><td class="text-center text-[11px]">' + escapeHTML(s.kelamin) + '</td><td class="text-center text-[11px]">' + escapeHTML(isoToDisplay(s.tglLahir)) + '</td><td class="text-center text-[11px] font-bold text-[#0F766E]">' + hitungUmur(s.tglLahir) + '</td><td>' + escapeHTML(s.orangTua || "-") + '</td><td>' + (s.wa ? '<button onclick="openWAPlain(\'' + s.wa + '\')" class="text-emerald-600 text-[11px] whitespace-nowrap">' + escapeHTML(formatPhoneDisplay(s.wa)) + '</button>' : "-") + '</td><td class="text-center">' + waliIndicator + '</td><td class="text-center">' + escapeHTML(s.status) + '</td>' + (canEdit ? '<td><div class="flex justify-center"><button onclick="openSantriModal(\'edit\',\'' + s.id + '\')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 16) + '</button></div></td>' : '') + '</tr>';
+    return '<tr><td>' + (i + 1) + '</td><td class="font-mono text-[10px]">' + escapeHTML(s.id) + '</td><td class="font-medium">' + escapeHTML(s.nama) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-red-100 text-[#E31E24] font-bold text-[10px]">' + escapeHTML(s.kelas) + '</span></td><td class="text-center text-[11px]">' + escapeHTML(s.kelamin) + '</td><td class="text-center text-[11px]">' + escapeHTML(isoToDisplay(s.tglLahir)) + '</td><td class="text-center text-[11px] font-bold text-[#0F766E]">' + hitungUmur(s.tglLahir) + '</td><td>' + escapeHTML(s.orangTua || "-") + '</td><td>' + (s.wa ? '<button onclick="openWAPlain(\'' + s.wa + '\')" class="text-emerald-600 text-[11px] whitespace-nowrap">' + escapeHTML(formatPhoneDisplay(s.wa)) + '</button>' : "-") + '</td><td class="text-center">' + waliIndicator + '</td><td class="text-center">' + escapeHTML(s.status) + '</td>' + (canEdit ? '<td><div class="flex justify-center gap-1"><button onclick="openSantriModal(\'edit\',\'' + s.id + '\')" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 12) + '</button></div></td>' : '') + '</tr>';
   }).join("");
   if (filtered.length === 0) rows = '<tr><td colspan="' + (canEdit ? 12 : 11) + '" class="p-6 text-center text-gray-400 text-xs">Tidak ada data</td></tr>';
   var kelasOptions = ["Semua"].concat(KELAS_LIST).map(function(k) { return '<option value="' + k + '"' + (f.kelas === k ? " selected" : "") + '>' + (k === "Semua" ? "Semua Kelas" : k) + '</option>'; }).join("");
@@ -2313,15 +2266,12 @@ window.saveSantri = function() {
   persist(); autoPush("sync_santri", app.santri);
   app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteSantri pakai customConfirm
 window.deleteSantri = function(id) {
-  customConfirm("Hapus santri ini?\n\nData pencapaian dan mutabaah juga akan dihapus.", function() {
-    app.santri = app.santri.filter(function(s) { return s.id !== id; });
-    delete app.pencapaian[id]; delete app.mutabaah[id];
-    persist(); autoPush("sync_santri", app.santri); autoPush("sync_pencapaian", app.pencapaian);
-    showToast("Dihapus", "ok"); render();
-  });
+  if (!confirm("Hapus santri ini?")) return;
+  app.santri = app.santri.filter(function(s) { return s.id !== id; });
+  delete app.pencapaian[id]; delete app.mutabaah[id];
+  persist(); autoPush("sync_santri", app.santri); autoPush("sync_pencapaian", app.pencapaian);
+  showToast("Dihapus", "ok"); render();
 };
 
 window.setBacaanNilai = function(n) { snapshotModalForm(); app.modal.data.nilai = n; var h = document.getElementById("f_bacaan_nilai"); if (h) h.value = n; renderModal(); };
@@ -2343,7 +2293,7 @@ function renderGuru() {
     return mQ;
   });
   var rows = list.map(function(g, i) {
-    return '<tr><td>' + (i + 1) + '</td><td class="font-mono text-[10px]">' + escapeHTML(g.id) + '</td><td class="font-medium">' + escapeHTML(g.nama) + '</td><td class="text-center">' + escapeHTML(g.jk) + '</td><td class="text-center">' + jabatanBadge(g.jabatan) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 font-bold text-[10px]">' + escapeHTML(g.kelas) + '</span></td><td>' + (g.noHP ? '<button onclick="openWAPlain(\'' + g.noHP + '\')" class="text-emerald-600 text-[11px] whitespace-nowrap">' + escapeHTML(formatPhoneDisplay(g.noHP)) + '</button>' : "-") + '</td><td class="text-center">' + escapeHTML(g.status) + '</td>' + (canEdit ? '<td><div class="flex justify-center gap-1.5"><button onclick="openGuruModal(\'edit\',\'' + g.id + '\')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 16) + '</button><button onclick="deleteGuru(\'' + g.id + '\')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 16) + '</button></div></td>' : '') + '</tr>';
+    return '<tr><td>' + (i + 1) + '</td><td class="font-mono text-[10px]">' + escapeHTML(g.id) + '</td><td class="font-medium">' + escapeHTML(g.nama) + '</td><td class="text-center">' + escapeHTML(g.jk) + '</td><td class="text-center">' + jabatanBadge(g.jabatan) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 font-bold text-[10px]">' + escapeHTML(g.kelas) + '</span></td><td>' + (g.noHP ? '<button onclick="openWAPlain(\'' + g.noHP + '\')" class="text-emerald-600 text-[11px] whitespace-nowrap">' + escapeHTML(formatPhoneDisplay(g.noHP)) + '</button>' : "-") + '</td><td class="text-center">' + escapeHTML(g.status) + '</td>' + (canEdit ? '<td><div class="flex justify-center gap-1"><button onclick="openGuruModal(\'edit\',\'' + g.id + '\')" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 12) + '</button><button onclick="deleteGuru(\'' + g.id + '\')" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 12) + '</button></div></td>' : '') + '</tr>';
   }).join("");
   if (list.length === 0) rows = '<tr><td colspan="' + (canEdit ? 9 : 8) + '" class="p-6 text-center text-gray-400 text-xs">Belum ada pengajar</td></tr>';
   return '<div class="space-y-4">'
@@ -2373,15 +2323,10 @@ window.saveGuru = function() {
   persist(); autoPush("sync_guru", app.guru);
   app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteGuru pakai customConfirm
 window.deleteGuru = function(id) {
-  var guru = app.guru.find(function(g){ return g.id === id; });
-  var namaGuru = guru ? guru.nama : "pengajar ini";
-  customConfirm("Hapus " + namaGuru + "?", function() {
-    app.guru = app.guru.filter(function(g) { return g.id !== id; });
-    persist(); autoPush("sync_guru", app.guru); showToast("Dihapus", "ok"); render();
-  });
+  if (!confirm("Hapus pengajar ini?")) return;
+  app.guru = app.guru.filter(function(g) { return g.id !== id; });
+  persist(); autoPush("sync_guru", app.guru); showToast("Dihapus", "ok"); render();
 };
 
 // ============================================================
@@ -2417,22 +2362,19 @@ window.savePresensiAll = function() {
   persist(); autoPush(isGuru ? "sync_presensi_guru" : "sync_presensi_santri", flattenPresensi(isGuru));
   showToast("✅ Semua hadir", "ok"); render();
 };
-
-// ✅ FIX: setPresensiBulkHadir pakai customConfirm
 window.setPresensiBulkHadir = function() {
   if (app.currentUser && app.currentUser.role === "walisantri") { showToast("🔒", "err"); return; }
-  customConfirm("Tandai HADIR semua santri/pengajar?", function() {
-    var isGuru = app.filterPresensi.tab === "guru";
-    var source = isGuru ? app.guru.filter(function(g) { return g.status === "Aktif"; }) : app.santri.filter(function(s) { return s.status === "Aktif"; });
-    var store = isGuru ? app.presensiGuru : app.presensiSantri;
-    var date = app.presensiDate;
-    if (!store[date]) store[date] = {};
-    source.forEach(function(s) {
-      store[date][s.id] = { nama: s.nama, kelas: s.kelas, status: "hadir", inputBy: app.currentUser.username, timestamp: nowISO() };
-    });
-    persist(); autoPush(isGuru ? "sync_presensi_guru" : "sync_presensi_santri", flattenPresensi(isGuru));
-    showToast("Semua hadir", "ok"); render();
+  if (!confirm("Tandai HADIR semua?")) return;
+  var isGuru = app.filterPresensi.tab === "guru";
+  var source = isGuru ? app.guru.filter(function(g) { return g.status === "Aktif"; }) : app.santri.filter(function(s) { return s.status === "Aktif"; });
+  var store = isGuru ? app.presensiGuru : app.presensiSantri;
+  var date = app.presensiDate;
+  if (!store[date]) store[date] = {};
+  source.forEach(function(s) {
+    store[date][s.id] = { nama: s.nama, kelas: s.kelas, status: "hadir", inputBy: app.currentUser.username, timestamp: nowISO() };
   });
+  persist(); autoPush(isGuru ? "sync_presensi_guru" : "sync_presensi_santri", flattenPresensi(isGuru));
+  showToast("Semua hadir", "ok"); render();
 };
 function chipBtn(id, status, label, cls, current) {
   return '<button onclick="setPresensiStatus(\'' + id + '\',\'' + status + '\')" class="chip ' + cls + ' ' + (current === status ? "active" : "") + '">' + label + '</button>';
@@ -2582,6 +2524,57 @@ function hitungHariTPA(dariStr, sampaiStr) {
   return { hariTpa: count, perHari: hari };
 }
 
+// ⭐ Helper: Deteksi mobile untuk print
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+}
+
+// ⭐ Helper: Buka window cetak + tombol tutup + auto-print (desktop only)
+function openPrintWindow(htmlContent) {
+  var w = window.open("", "_blank");
+  if (!w) {
+    showToast("Popup diblokir. Izinkan popup untuk mencetak.", "err");
+    return null;
+  }
+  w.document.open();
+  w.document.write(htmlContent);
+  w.document.close();
+
+  setTimeout(function() {
+    try {
+      w.focus();
+      if (isMobileDevice()) {
+        // Di HP: JANGAN auto-print, tunggu user klik tombol Cetak
+        console.log("[print] Mode mobile — tombol Cetak & Tutup tersedia");
+      } else {
+        // Di desktop: auto-print
+        w.print();
+      }
+    } catch (e) { console.error(e); }
+  }, 500);
+
+  return w;
+}
+
+// ⭐ Helper: HTML tombol tutup melayang
+function printCloseButtonHTML() {
+  return '<div class="close-btn-container">'
+    + '<button class="close-btn secondary" onclick="window.print()">🖨️ Cetak / Simpan PDF</button>'
+    + '<button class="close-btn" onclick="try{window.close();}catch(e){}setTimeout(function(){if(!window.closed){window.history.back();}},150);">✕ Tutup & Kembali</button>'
+    + '</div>';
+}
+
+// ⭐ Helper: CSS tombol tutup
+function printCloseButtonCSS() {
+  return '  .close-btn-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; gap: 10px; flex-direction: column; align-items: flex-end; }'
+    + '  .close-btn { background: #0F766E; color: white; border: none; border-radius: 999px; padding: 14px 24px; font-size: 15px; font-weight: bold; box-shadow: 0 8px 24px rgba(0,0,0,0.25); cursor: pointer; display: flex; align-items: center; gap: 8px; font-family: inherit; transition: transform 0.15s, background 0.15s; }'
+    + '  .close-btn:active { transform: scale(0.95); }'
+    + '  .close-btn:hover { background: #0e6b64; }'
+    + '  .close-btn.secondary { background: #64748b; padding: 10px 18px; font-size: 13px; }'
+    + '  .close-btn.secondary:hover { background: #475569; }'
+    + '  @media print { .close-btn-container { display: none !important; } }';
+}
+
 window.printPresensiReport = function(d) {
   var dariISO = d.dari;
   var sampaiISO = d.sampai;
@@ -2682,6 +2675,7 @@ window.printPresensiReport = function(d) {
   html += '  .footer .ttd .space { height: 50px; }';
   html += '  .footer .ttd .line { border-top: 1px solid #333; padding-top: 3px; }';
   html += '  .note { text-align: center; margin-top: 15px; font-size: 8.5px; color: #999; }';
+  html += printCloseButtonCSS();
   html += '  @media print { body { margin: 6mm; } }';
   html += '</style></head><body>';
 
@@ -2772,16 +2766,10 @@ window.printPresensiReport = function(d) {
   html += '</div>';
 
   html += '<div class="note">Dicetak dari TPQ Digital v' + escapeHTML(APP_VERSION) + ' — TPA Ar-Rahman Jogonalan Lor</div>';
+  html += printCloseButtonHTML();
   html += '</body></html>';
 
-  var w = window.open("", "_blank");
-  if (!w) { showToast("Popup diblokir. Izinkan popup untuk mencetak.", "err"); return; }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  setTimeout(function() {
-    try { w.focus(); w.print(); } catch(e) { console.error(e); }
-  }, 400);
+  openPrintWindow(html);
 };
 
 function modalPresensiReportHTML(m) {
@@ -2873,6 +2861,7 @@ window.printPencapaian = function(santriId) {
   html += '  .footer .ttd .space { height: 60px; }';
   html += '  .footer .ttd .line { border-top: 1px solid #333; padding-top: 4px; }';
   html += '  .note { text-align: center; margin-top: 20px; font-size: 9px; color: #999; }';
+  html += printCloseButtonCSS();
   html += '  @media print { body { margin: 8mm; } }';
   html += '</style></head><body>';
   html += '<div class="header"><h1>LAPORAN PENCAPAIAN SANTRI</h1><h2>TPA Ar-Rahman — Jogonalan Lor</h2><div class="sub">Dicetak: ' + tglCetak + '</div></div>';
@@ -2884,12 +2873,10 @@ window.printPencapaian = function(santriId) {
   html += '<h3>📖 Bacaan (Iqro / Al-Quran)</h3><table class="data"><thead><tr><th style="width:40px">No</th><th style="width:90px">Tanggal</th><th>Bacaan</th><th style="width:60px">Hal</th><th style="width:100px">Nilai</th><th style="width:80px">Ket</th></tr></thead><tbody>' + bacaanRows + '</tbody></table>';
   html += '<div class="footer"><div class="ttd"><div>Wali Santri</div><div class="space"></div><div class="line">' + escapeHTML(santri.orangTua || "....................") + '</div></div><div class="ttd"><div>Pengajar TPQ</div><div class="space"></div><div class="line">....................</div></div></div>';
   html += '<div class="note">Dicetak dari TPQ Digital v' + escapeHTML(APP_VERSION) + ' — TPA Ar-Rahman Jogonalan Lor</div>';
+  html += printCloseButtonHTML();
   html += '</body></html>';
 
-  var w = window.open("", "_blank");
-  if (!w) { showToast("Popup diblokir. Izinkan popup untuk mencetak.", "err"); return; }
-  w.document.open(); w.document.write(html); w.document.close();
-  setTimeout(function() { try { w.focus(); w.print(); } catch(e) {} }, 400);
+  openPrintWindow(html);
 };
 
 // ============================================================
@@ -2976,13 +2963,10 @@ window.saveKas = function() {
   persist(); autoPush("sync_kas", app.kas);
   app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteKas pakai customConfirm
 window.deleteKas = function(id) {
-  customConfirm("Hapus transaksi ini?", function() {
-    app.kas = app.kas.filter(function(k){ return k.id !== id; });
-    persist(); autoPush("sync_kas", app.kas); render();
-  });
+  if (!confirm("Hapus?")) return;
+  app.kas = app.kas.filter(function(k){ return k.id !== id; });
+  persist(); autoPush("sync_kas", app.kas); render();
 };
 
 function renderKas() {
@@ -2996,7 +2980,7 @@ function renderKas() {
   });
   var rows = kasSorted.map(function(k){
     var cls = k.jenis === "Pemasukan" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
-    return '<tr><td class="font-mono text-[10px]">' + escapeHTML(k.id) + '</td><td>' + escapeHTML(isoToDisplay(k.tanggal)) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(k.jenis) + '</span></td><td>' + escapeHTML(k.kategori) + '</td><td class="text-right font-bold">' + vn(k.nominal) + '</td><td>' + escapeHTML(k.ket) + '</td><td><div class="flex justify-center gap-1.5"><button onclick="openKasModal(\'edit\',\'' + k.id + '\')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 16) + '</button><button onclick="deleteKas(\'' + k.id + '\')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 16) + '</button></div></td></tr>';
+    return '<tr><td class="font-mono text-[10px]">' + escapeHTML(k.id) + '</td><td>' + escapeHTML(isoToDisplay(k.tanggal)) + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(k.jenis) + '</span></td><td>' + escapeHTML(k.kategori) + '</td><td class="text-right font-bold">' + vn(k.nominal) + '</td><td>' + escapeHTML(k.ket) + '</td><td><div class="flex justify-center gap-1"><button onclick="openKasModal(\'edit\',\'' + k.id + '\')" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 12) + '</button><button onclick="deleteKas(\'' + k.id + '\')" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 12) + '</button></div></td></tr>';
   }).join("");
   if (app.kas.length === 0) rows = '<tr><td colspan="7" class="p-6 text-center text-gray-400 text-xs">Belum ada transaksi</td></tr>';
   return '<div class="space-y-4">'
@@ -3021,18 +3005,15 @@ window.deleteLogWA = function(id) {
   app.logWA = app.logWA.filter(function(l){ return l.id !== id; });
   saveLS("tpq_logwa_v17", app.logWA); autoPush("sync_logwa", app.logWA); renderKeepScroll();
 };
-
-// ✅ FIX: clearAllLogWA pakai customConfirm
 window.clearAllLogWA = function() {
-  customConfirm("Hapus semua log WA?", function() {
-    app.logWA = []; saveLS("tpq_logwa_v17", app.logWA); autoPush("sync_logwa", app.logWA); render();
-  });
+  if (!confirm("Hapus semua log?")) return;
+  app.logWA = []; saveLS("tpq_logwa_v17", app.logWA); autoPush("sync_logwa", app.logWA); render();
 };
 
 function renderLogWA() {
   var rows = app.logWA.map(function(l){
     var cls = l.status === "Terkirim" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700";
-    return '<div class="p-3 border-t flex items-start gap-3"><div class="flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-[12px]">' + escapeHTML(l.penerima) + '</span><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(l.status) + '</span></div><p class="text-[11px] text-gray-600 mt-1 line-clamp-2">' + escapeHTML(l.pesan) + '</p><div class="text-[10px] text-gray-400 mt-1">📱 ' + escapeHTML(formatPhoneDisplay(l.wa)) + '</div></div><div class="flex gap-1"><button onclick="retryLogWA(\'' + l.id + '\')" class="h-9 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">Buka WA</button><button onclick="deleteLogWA(\'' + l.id + '\')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 16) + '</button></div></div>';
+    return '<div class="p-3 border-t flex items-start gap-3"><div class="flex-1"><div class="flex items-center gap-2 flex-wrap"><span class="font-medium text-[12px]">' + escapeHTML(l.penerima) + '</span><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(l.status) + '</span></div><p class="text-[11px] text-gray-600 mt-1 line-clamp-2">' + escapeHTML(l.pesan) + '</p><div class="text-[10px] text-gray-400 mt-1">📱 ' + escapeHTML(formatPhoneDisplay(l.wa)) + '</div></div><div class="flex gap-1"><button onclick="retryLogWA(\'' + l.id + '\')" class="h-8 px-3 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold">Buka WA</button><button onclick="deleteLogWA(\'' + l.id + '\')" class="h-8 w-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 12) + '</button></div></div>';
   }).join("");
   if (app.logWA.length === 0) rows = '<div class="p-8 text-center text-gray-400 text-xs">Belum ada log</div>';
   return '<div class="space-y-4"><div class="flex justify-between flex-wrap gap-2"><h1 class="text-[24px] font-extrabold">Log WA</h1><button onclick="clearAllLogWA()" class="h-10 px-4 rounded-xl bg-red-50 text-red-600 font-bold text-[12px]">Hapus Semua</button></div><div class="bg-white rounded-2xl border overflow-hidden shadow-sm">' + rows + '</div></div>';
@@ -3064,9 +3045,9 @@ function renderSyncPage() {
     + '<div class="bg-white rounded-2xl border p-4"><div class="font-bold text-[13px] mb-2">Statistik</div><div class="grid grid-cols-4 gap-2 text-center"><div><div class="text-lg font-extrabold text-[#0F766E]">' + app.santri.length + '</div><div class="text-[10px] text-gray-500">Santri</div></div><div><div class="text-lg font-extrabold text-blue-600">' + app.guru.length + '</div><div class="text-[10px] text-gray-500">Guru</div></div><div><div class="text-lg font-extrabold text-emerald-600">' + app.users.length + '</div><div class="text-[10px] text-gray-500">Akun</div></div><div><div class="text-lg font-extrabold text-amber-600">' + app.users.filter(function(u){ return u.status === "pending"; }).length + '</div><div class="text-[10px] text-gray-500">Pending</div></div></div></div>'
     + '<div class="bg-white rounded-2xl border overflow-hidden"><div class="p-3 bg-gray-50 border-b font-bold text-[13px]">📋 Riwayat Sync</div><div>' + logRows + '</div></div></div>';
 }
-window.clearSyncLog = function() { customConfirm("Hapus riwayat sync?", function() { SYNC.log = []; persistSync(); render(); }); };
+window.clearSyncLog = function() { if (!confirm("Hapus riwayat?")) return; SYNC.log = []; persistSync(); render(); };
 window.openSyncSettings = function() { goPage("sync"); };
-window.resetUsersToDefault = function() { customConfirm("Reset akun ke bawaan?", function() { app.users = JSON.parse(JSON.stringify(USERS_DEFAULT)); persist(); autoPush("sync_users", app.users); render(); }); };
+window.resetUsersToDefault = function() { if (!confirm("Reset akun ke bawaan?")) return; app.users = JSON.parse(JSON.stringify(USERS_DEFAULT)); persist(); autoPush("sync_users", app.users); render(); };
 window.showUserList = function() { var list = app.users.map(function(u) { return u.username + " / " + u.password + " — " + u.role + " [Kelas: " + (u.kelas || "-") + "] [" + (u.status || "approved") + "]"; }).join("\n"); alert("AKUN:\n\n" + list); };
 
 // ============================================================
@@ -3106,18 +3087,12 @@ window.saveAkun = function() {
   persist(); autoPush("sync_users", app.users);
   app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteAkun pakai customConfirm
 window.deleteAkun = function(username) {
   if (username === app.currentUser.username) { showToast("Tidak bisa hapus diri sendiri", "err"); return; }
-  var u = app.users.find(function(x){ return x.username === username; });
-  var namaAkun = u ? u.name + " (@" + username + ")" : username;
-  customConfirm("Hapus akun " + namaAkun + "?", function() {
-    app.users = app.users.filter(function(x) { return x.username !== username; });
-    persist(); autoPush("sync_users", app.users); render();
-  });
+  if (!confirm("Hapus akun?")) return;
+  app.users = app.users.filter(function(x) { return x.username !== username; });
+  persist(); autoPush("sync_users", app.users); render();
 };
-
 window.onAkunRoleChange = function(role) {
   var el = document.getElementById("akunRoleExtra");
   if (!el) return;
@@ -3147,7 +3122,7 @@ function renderAkun() {
   });
   var rows = filtered.map(function(u) {
     var statusBadge = u.status === "pending" ? '⏳' : (u.status === "rejected" ? '✗' : '✓');
-    return '<tr><td class="font-mono font-bold text-[#0F766E]">' + escapeHTML(u.username) + '</td><td>' + escapeHTML(u.name) + ' ' + statusBadge + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] font-bold">' + escapeHTML(u.role) + '</span></td><td class="text-center">' + (u.kelas || u.santriId || "-") + '</td><td class="text-center font-mono text-gray-400">••••</td><td><div class="flex justify-center gap-1.5"><button onclick="openAkunModal(\'edit\',\'' + u.username + '\')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 16) + '</button><button onclick="deleteAkun(\'' + u.username + '\')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 16) + '</button></div></td></tr>';
+    return '<tr><td class="font-mono font-bold text-[#0F766E]">' + escapeHTML(u.username) + '</td><td>' + escapeHTML(u.name) + ' ' + statusBadge + '</td><td class="text-center"><span class="px-2 py-0.5 rounded-full bg-gray-100 text-[10px] font-bold">' + escapeHTML(u.role) + '</span></td><td class="text-center">' + (u.kelas || u.santriId || "-") + '</td><td class="text-center font-mono text-gray-400">••••</td><td><div class="flex justify-center gap-1"><button onclick="openAkunModal(\'edit\',\'' + u.username + '\')" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 12) + '</button><button onclick="deleteAkun(\'' + u.username + '\')" class="w-7 h-7 rounded-lg bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 12) + '</button></div></td></tr>';
   }).join("");
   var roleOptions = ["Semua", "admin", "walikelas", "walisantri"].map(function(r) { return '<option value="' + r + '"' + (f.role === r ? " selected" : "") + '>' + r + '</option>'; }).join("");
   return '<div class="space-y-4">'
@@ -3181,26 +3156,8 @@ function renderModal() {
     else if (m.type === "masukanDetail") el.innerHTML = modalMasukanDetailHTML(m);
     else if (m.type === "mutabaahDetail") el.innerHTML = modalMutabaahDetailHTML(m.santriId);
     else if (m.type === "presensiReport") el.innerHTML = modalPresensiReportHTML(m);
-    else if (m.type === "confirm") el.innerHTML = modalConfirmHTML(m); // ✅ FIX
     else el.innerHTML = "";
   } catch (e) { console.error("Modal error:", e); el.innerHTML = '<div class="err-box">Error: ' + escapeHTML(e.message) + '</div>'; }
-}
-
-// ✅ FIX: Modal konfirmasi custom
-function modalConfirmHTML(m) {
-  var dangerCls = m.danger ? "bg-red-600 hover:bg-red-700" : "bg-[#0F766E] hover:bg-[#0e6b64]";
-  return '<div class="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 modal-fade" onclick="if(event.target===this)confirmCancel()">'
-    + '<div class="bg-white w-full max-w-[400px] rounded-2xl p-5 modal-slide shadow-2xl" onclick="event.stopPropagation()">'
-    +   '<div class="flex items-center gap-3 mb-3">'
-    +     '<div class="w-11 h-11 rounded-full ' + (m.danger ? 'bg-red-100 text-red-600' : 'bg-teal-100 text-[#0F766E]') + ' flex items-center justify-center shrink-0 text-[22px]">' + (m.danger ? '⚠️' : '❓') + '</div>'
-    +     '<div class="font-bold text-[16px] text-gray-900">' + escapeHTML(m.title || "Konfirmasi") + '</div>'
-    +   '</div>'
-    +   '<div class="text-[13px] text-gray-700 mb-5 whitespace-pre-line leading-relaxed">' + escapeHTML(m.msg) + '</div>'
-    +   '<div class="flex gap-2">'
-    +     '<button onclick="confirmCancel()" class="flex-1 h-11 rounded-xl border-2 border-gray-200 text-gray-700 font-bold text-[13px] active:bg-gray-50">' + escapeHTML(m.cancelText || "Batal") + '</button>'
-    +     '<button onclick="confirmOk()" class="flex-1 h-11 rounded-xl ' + dangerCls + ' text-white font-bold text-[13px] shadow-md">' + escapeHTML(m.okText || "Ya, Lanjut") + '</button>'
-    +   '</div>'
-    + '</div></div>';
 }
 
 function modalSantriHTML(m) {
@@ -3282,7 +3239,7 @@ function modalMasukanDetailHTML(m) {
     + '<div class="bg-gradient-to-br from-pink-500 to-rose-500 rounded-2xl p-4 text-white"><div class="font-bold">' + escapeHTML(item.pengirim) + '</div><div class="text-[10px] opacity-80 mt-1">' + fmtTime(item.tanggal) + '</div></div>'
     + '<div class="bg-gray-50 border rounded-xl p-3 text-[13px] whitespace-pre-wrap">' + escapeHTML(item.isi) + '</div>'
     + (item.balasan ? '<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-[13px] whitespace-pre-wrap">💬 ' + escapeHTML(item.balasan) + '</div>' : '')
-    + (canReply ? '<textarea id="f_masukan_balasan" rows="3" class="w-full p-3 rounded-xl border text-sm" placeholder="Balasan...">' + escapeHTML(item.balasan || "") + '</textarea><div class="flex gap-2"><button onclick="saveBalasanMasukan()" class="flex-1 h-10 rounded-xl bg-[#0F766E] text-white font-bold text-[12px]">Kirim Balasan</button><button onclick="deleteMasukan(\'' + item.id + '\')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 16) + '</button></div>' : '')
+    + (canReply ? '<textarea id="f_masukan_balasan" rows="3" class="w-full p-3 rounded-xl border text-sm" placeholder="Balasan...">' + escapeHTML(item.balasan || "") + '</textarea><div class="flex gap-2"><button onclick="saveBalasanMasukan()" class="flex-1 h-10 rounded-xl bg-[#0F766E] text-white font-bold text-[12px]">Kirim Balasan</button><button onclick="deleteMasukan(\'' + item.id + '\')" class="h-10 w-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 14) + '</button></div>' : '')
     + '<button onclick="closeModal()" class="w-full h-11 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold">Tutup</button></div></div>';
 }
 
@@ -3370,15 +3327,11 @@ window.saveHafalanSurat = function() {
   persist(); autoPush("sync_pencapaian", app.pencapaian);
   showToast("✅ Tersimpan", "ok"); app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteHafalanSurat pakai customConfirm
 window.deleteHafalanSurat = function(sid, idx) {
-  customConfirm("Hapus hafalan surat ini?", function() {
-    if (app.pencapaian[sid] && app.pencapaian[sid].surat) { app.pencapaian[sid].surat.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
-    app.modal = null; renderModal(); render();
-  });
+  if (!confirm("Hapus?")) return;
+  if (app.pencapaian[sid] && app.pencapaian[sid].surat) { app.pencapaian[sid].surat.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
+  app.modal = null; renderModal(); render();
 };
-
 window.openHafalanDoaModal = function(sid, idx) {
   var data = getPencapaian(sid);
   var isEdit = (typeof idx === "number" && idx >= 0 && data.doa[idx]);
@@ -3398,15 +3351,11 @@ window.saveHafalanDoa = function() {
   persist(); autoPush("sync_pencapaian", app.pencapaian);
   showToast("✅ Tersimpan", "ok"); app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteHafalanDoa pakai customConfirm
 window.deleteHafalanDoa = function(sid, idx) {
-  customConfirm("Hapus hafalan doa ini?", function() {
-    if (app.pencapaian[sid] && app.pencapaian[sid].doa) { app.pencapaian[sid].doa.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
-    app.modal = null; renderModal(); render();
-  });
+  if (!confirm("Hapus?")) return;
+  if (app.pencapaian[sid] && app.pencapaian[sid].doa) { app.pencapaian[sid].doa.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
+  app.modal = null; renderModal(); render();
 };
-
 window.openTugasModal = function(sid, idx) {
   var data = getPencapaian(sid);
   var isEdit = (typeof idx === "number" && idx >= 0 && data.tugas[idx]);
@@ -3426,13 +3375,10 @@ window.saveTugas = function() {
   persist(); autoPush("sync_pencapaian", app.pencapaian);
   showToast("✅ Tersimpan", "ok"); app.modal = null; renderModal(); render();
 };
-
-// ✅ FIX: deleteTugas pakai customConfirm
 window.deleteTugas = function(sid, idx) {
-  customConfirm("Hapus tugas ini?", function() {
-    if (app.pencapaian[sid] && app.pencapaian[sid].tugas) { app.pencapaian[sid].tugas.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
-    app.modal = null; renderModal(); render();
-  });
+  if (!confirm("Hapus?")) return;
+  if (app.pencapaian[sid] && app.pencapaian[sid].tugas) { app.pencapaian[sid].tugas.splice(idx, 1); persist(); autoPush("sync_pencapaian", app.pencapaian); }
+  app.modal = null; renderModal(); render();
 };
 
 function modalPencapaianDetailHTML(sid) {
@@ -3441,15 +3387,15 @@ function modalPencapaianDetailHTML(sid) {
   var data = getPencapaian(santri.id);
   var canEdit = app.currentUser.role === "admin" || app.currentUser.role === "walikelas";
   var sR = data.surat.map(function(s, i) {
-    return '<tr><td>' + escapeHTML(s.nama) + '</td><td class="text-center">' + statusHafalanBadge(s.status) + '</td><td class="text-center">' + escapeHTML(s.nilai || "-") + '</td>' + (canEdit ? '<td><div class="flex gap-1 justify-center"><button onclick="closeModal();openHafalanSuratModal(\'' + santri.id + '\',' + i + ')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 14) + '</button><button onclick="closeModal();deleteHafalanSurat(\'' + santri.id + '\',' + i + ')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 14) + '</button></div></td>' : '') + '</tr>';
+    return '<tr><td>' + escapeHTML(s.nama) + '</td><td class="text-center">' + statusHafalanBadge(s.status) + '</td><td class="text-center">' + escapeHTML(s.nilai || "-") + '</td>' + (canEdit ? '<td><div class="flex gap-1"><button onclick="closeModal();openHafalanSuratModal(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 10) + '</button><button onclick="closeModal();deleteHafalanSurat(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 10) + '</button></div></td>' : '') + '</tr>';
   }).join("");
   if (data.surat.length === 0) sR = '<tr><td colspan="' + (canEdit ? 4 : 3) + '" class="p-6 text-center text-gray-400 text-xs">Kosong</td></tr>';
   var dR = data.doa.map(function(d, i) {
-    return '<tr><td>' + escapeHTML(d.nama) + '</td><td class="text-center">' + statusHafalanBadge(d.status) + '</td>' + (canEdit ? '<td><div class="flex gap-1 justify-center"><button onclick="closeModal();openHafalanDoaModal(\'' + santri.id + '\',' + i + ')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 14) + '</button><button onclick="closeModal();deleteHafalanDoa(\'' + santri.id + '\',' + i + ')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 14) + '</button></div></td>' : '') + '</tr>';
+    return '<tr><td>' + escapeHTML(d.nama) + '</td><td class="text-center">' + statusHafalanBadge(d.status) + '</td>' + (canEdit ? '<td><div class="flex gap-1"><button onclick="closeModal();openHafalanDoaModal(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 10) + '</button><button onclick="closeModal();deleteHafalanDoa(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 10) + '</button></div></td>' : '') + '</tr>';
   }).join("");
   if (data.doa.length === 0) dR = '<tr><td colspan="' + (canEdit ? 3 : 2) + '" class="p-6 text-center text-gray-400 text-xs">Kosong</td></tr>';
   var tR = (data.tugas || []).map(function(t, i) {
-    return '<tr><td>' + escapeHTML(t.nama) + '</td><td class="text-center">' + statusTugasBadge(t.status) + '</td>' + (canEdit ? '<td><div class="flex gap-1 justify-center"><button onclick="closeModal();openTugasModal(\'' + santri.id + '\',' + i + ')" class="btn-action bg-blue-50 text-blue-600">' + ico("edit", 14) + '</button><button onclick="closeModal();deleteTugas(\'' + santri.id + '\',' + i + ')" class="btn-action bg-red-50 text-red-600">' + ico("trash", 14) + '</button></div></td>' : '') + '</tr>';
+    return '<tr><td>' + escapeHTML(t.nama) + '</td><td class="text-center">' + statusTugasBadge(t.status) + '</td>' + (canEdit ? '<td><div class="flex gap-1"><button onclick="closeModal();openTugasModal(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-blue-50 text-blue-600 flex items-center justify-center">' + ico("edit", 10) + '</button><button onclick="closeModal();deleteTugas(\'' + santri.id + '\',' + i + ')" class="w-6 h-6 rounded bg-red-50 text-red-600 flex items-center justify-center">' + ico("trash", 10) + '</button></div></td>' : '') + '</tr>';
   }).join("");
   if ((data.tugas || []).length === 0) tR = '<tr><td colspan="' + (canEdit ? 3 : 2) + '" class="p-6 text-center text-gray-400 text-xs">Kosong</td></tr>';
   var bR = (data.bacaan || []).map(function(b, i) {
@@ -3561,13 +3507,6 @@ function init() {
   setInterval(checkMidnightRollover, 30000);
   setInterval(updateRealtimeClock, 1000);
   updateRealtimeClock();
-
-  // ✅ FIX: Fallback tombol Escape untuk tutup modal konfirmasi
-  document.addEventListener("keydown", function(e) {
-    if (e.key === "Escape" && app.modal && app.modal.type === "confirm") {
-      confirmCancel();
-    }
-  });
 }
 
 if (document.readyState === "loading") {
