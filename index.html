@@ -1725,7 +1725,9 @@ window.saveSantri = function() {
     app.santri = app.santri.map(function(s) { return s.id === data.id ? data : s; });
     showToast("Perubahan disimpan", "ok");
   }
-  persist(); autoPush("sync_santri", app.santri);
+  persist();
+  autoPush("sync_santri", app.santri);
+  autoPush("sync_pencapaian", app.pencapaian);  // ← FIX: ikut push pencapaian supaya sheet Pencapaian terupdate
   app.modal = null; renderModal(); render();
 };
 window.deleteSantri = function(id) {
@@ -2569,7 +2571,7 @@ function modalLinkSantriAkunHTML(m) {
   var defaultPwd = "123456";
   return '<div class="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4 modal-fade" onclick="if(event.target===this)closeModal()"><div class="bg-white w-full max-w-[480px] rounded-t-2xl md:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto modal-slide" onclick="event.stopPropagation()">'
     + head + infoSantri
-    + '<div class="bg-blue-50 border border-blue-200 rounded-xl p-2.5 text-[11px] text-blue-800 flex items-start gap-1.5">' + ico("info", 12, "shrink-0 mt-0.5") + ' <span>Akun ini akan dibuat dengan role <b>walikelas</b>... maaf, dengan role <b>walisantri</b> dan otomatis terhubung ke santri <b>' + escapeHTML(santri.nama) + '</b>.</span></div>'
+    + '<div class="bg-blue-50 border border-blue-200 rounded-xl p-2.5 text-[11px] text-blue-800 flex items-start gap-1.5">' + ico("info", 12, "shrink-0 mt-0.5") + ' <span>Akun ini akan dibuat dengan role <b>walisantri</b> dan otomatis terhubung ke santri <b>' + escapeHTML(santri.nama) + '</b>.</span></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Username *</label><input id="f_link_santri_username" value="' + escapeHTML(defaultUser) + '" placeholder="cth: walibudi" class="w-full h-10 px-3 rounded-xl border text-sm lowercase" /></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Password * (min. 6)</label><input id="f_link_santri_pwd" value="' + escapeHTML(defaultPwd) + '" class="w-full h-10 px-3 rounded-xl border text-sm font-mono" /></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Nama Akun *</label><input id="f_link_santri_name" value="' + escapeHTML(santri.orangTua || "") + '" class="w-full h-10 px-3 rounded-xl border text-sm" /></div>'
