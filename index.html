@@ -287,6 +287,8 @@ var app = {
   logWA: loadLS("tpq_logwa_v17", LOGWA_DEFAULT),
   masukan: loadLS("tpq_masukan_v5", MASUKAN_DEFAULT),
   mutabaah: loadLS("tpq_mutabaah_v1", {}),
+  logLogin: loadLS("tpq_loglogin_v1", []),
+  sessionAktif: loadLS("tpq_sessionaktif_v1", []),
   presensiDate: todayISO(), mutabaahDate: todayISO(),
   filterSantri: { q: "", kelas: "Semua", jk: "Semua", status: "Semua" },
   filterPresensi: { tab: "santri", kelas: "all" },
@@ -415,6 +417,7 @@ function persist() {
   saveLS("tpq_presensi_guru_v11", app.presensiGuru); saveLS("tpq_kas_v17", app.kas);
   saveLS("tpq_logwa_v17", app.logWA); saveLS("tpq_masukan_v5", app.masukan);
   saveLS("tpq_mutabaah_v1", app.mutabaah); saveLS("tpq_current_user_v11", app.currentUser);
+  saveLS("tpq_loglogin_v1", app.logLogin); saveLS("tpq_sessionaktif_v1", app.sessionAktif);
 }
 function persistSync() { saveLS("tpq_sync_last_v11", SYNC.lastSync); saveLS("tpq_sync_log_v11", SYNC.log); }
 function showToast(msg, type) {
@@ -475,6 +478,63 @@ function escapeHTML(s) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
   });
 }
+
+// ============================================================
+// LOG LOGIN HELPERS
+// ============================================================
+function getDeviceInfo() {
+  try {
+    var ua = navigator.userAgent || "";
+    var d = "Web";
+    if (/Android/i.test(ua)) d = "Android";
+    else if (/iPhone|iPad|iPod/i.test(ua)) d = "iOS";
+    else if (/Windows/i.test(ua)) d = "Windows";
+    else if (/Mac/i.test(ua)) d = "Mac";
+    else if (/Linux/i.test(ua)) d = "Linux";
+    var br = "Browser";
+    if (/Chrome/i.test(ua) && !/Edg/i.test(ua)) br = "Chrome";
+    else if (/Firefox/i.test(ua)) br = "Firefox";
+    else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) br = "Safari";
+    else if (/Edg/i.test(ua)) br = "Edge";
+    return d + " · " + br;
+  } catch (e) { return "Web"; }
+}
+function getRelasiInfo(user) {
+  if (user.santriId) return "Anak: " + user.santriId;
+  if (user.guruId) return "Guru: " + user.guruId;
+  if (user.kelas) return "Kelas " + user.kelas;
+  return "-";
+}
+function logLoginEvent(aksi, userOverride) {
+  var user = userOverride || app.currentUser;
+  if (!user || !SYNC.url || SYNC.url.indexOf("GANTI_") === 0) return;
+  var payload = {
+    username: user.username || "",
+    name: user.name || "",
+    role: user.role || "",
+    kelas: user.kelas || "",
+    relasi: getRelasiInfo(user),
+    device: getDeviceInfo()
+  };
+  var action = (aksi === "logout") ? "log_logout" : "log_login";
+  fetch(SYNC.url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: action, payload: payload }),
+    redirect: "follow"
+  }).catch(function(e) { console.warn("[log-login] gagal kirim:", e); });
+}
+window.sessionPing = function() {
+  if (!app.currentUser || !SYNC.url || SYNC.url.indexOf("GANTI_") === 0) return;
+  if (document.hidden) return;
+  fetch(SYNC.url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "session_ping", payload: { username: app.currentUser.username } }),
+    redirect: "follow"
+  }).catch(function() {});
+};
+
 function nilaiBadge(nilai) {
   var cls = "bg-gray-100 text-gray-600";
   if (nilai === "Bagus") cls = "bg-emerald-100 text-emerald-700";
@@ -726,6 +786,8 @@ function applyServerDataToApp(data) {
   if (data.logWA && Array.isArray(data.logWA) && !hasPending("sync_logwa")) app.logWA = data.logWA;
   if (data.masukan && Array.isArray(data.masukan) && !hasPending("sync_masukan")) app.masukan = data.masukan;
   if (data.mutabaah && typeof data.mutabaah === "object" && !Array.isArray(data.mutabaah) && !hasPending("sync_mutabaah")) app.mutabaah = data.mutabaah;
+  if (data.logLogin && Array.isArray(data.logLogin)) app.logLogin = data.logLogin;
+  if (data.sessionAktif && Array.isArray(data.sessionAktif)) app.sessionAktif = data.sessionAktif;
 }
 function loginSyncAutoPull() {
   if (!SYNC.url || SYNC.url.indexOf("GANTI_") === 0) { LOGIN_SYNC.status = "error"; LOGIN_SYNC.msg = "URL sync belum diset"; return Promise.resolve(false); }
@@ -920,14 +982,15 @@ window.snoozeUpdate = snoozeUpdate; window.dismissUpdateBanner = dismissUpdateBa
 
 window.goPage = function(page) {
   var role = app.currentUser ? app.currentUser.role : null;
-  if (role === "walisantri" && ["akun", "guru", "sync", "kas", "logwa", "approval"].indexOf(page) !== -1) { showToast("Akses ditolak", "err"); return; }
-  if (role === "walikelas" && ["akun", "sync", "kas"].indexOf(page) !== -1) { showToast("Hanya admin bisa akses", "err"); return; }
+  if (role === "walisantri" && ["akun", "guru", "sync", "kas", "logwa", "approval", "loglogin"].indexOf(page) !== -1) { showToast("Akses ditolak", "err"); return; }
+  if (role === "walikelas" && ["akun", "sync", "kas", "loglogin"].indexOf(page) !== -1) { showToast("Hanya admin bisa akses", "err"); return; }
   app.page = page; app.sidebarOpen = false; app.modal = null; render(); window.scrollTo(0, 0);
 };
 window.toggleSidebar = function() { app.sidebarOpen = !app.sidebarOpen; render(); };
 window.logout = function() {
   if (!confirm("Yakin keluar?")) return;
   if (Object.keys(PUSH_QUEUE.pending).length > 0) { if (PUSH_QUEUE.timer) clearTimeout(PUSH_QUEUE.timer); flushPushQueue(); }
+  if (app.currentUser) logLoginEvent("logout", app.currentUser);
   stopAutoSync();
   app.currentUser = null; app.page = "login"; app.modal = null; app.loginMode = "username";
   LOGIN_SYNC.status = "idle"; LOGIN_SYNC.msg = "";
@@ -954,6 +1017,7 @@ window.doLogin = function() {
   if (user.status === "rejected") { showToast("❌ Pendaftaran Anda ditolak. Hubungi admin.", "err"); return; }
   app.currentUser = user; app.page = "dashboard"; persist();
   showToast("Selamat datang, " + user.name, "ok"); render();
+  logLoginEvent("login", user);
   if (SYNC.autoPull && SYNC.url && SYNC.url.indexOf("GANTI_") !== 0) {
     setTimeout(function() { syncPull(true).then(function(ok) { if (ok) showToast("Data tersinkron ✓", "ok"); }); }, 300);
   }
@@ -1173,6 +1237,7 @@ function renderLayout() {
     { k: "approval",   label: "Approval Akun", icon: "clipboard", roles: ["admin","walikelas"] },
     { k: "kas",        label: "Kas / Keuangan", icon: "wallet", roles: ["admin"] },
     { k: "logwa",      label: "Log WA",     icon: "message",    roles: ["admin","walikelas"] },
+    { k: "loglogin",   label: "Log Login",  icon: "clipboard",  roles: ["admin"] },
     { k: "sync",       label: "Sinkronisasi", icon: "cloud",    roles: ["admin"] },
     { k: "akun",       label: "Kelola Akun", icon: "akun",      roles: ["admin"] }
   ];
@@ -1240,8 +1305,8 @@ function renderPage() {
     return '<div class="bg-red-50 border border-red-200 text-red-700 p-6 rounded-2xl text-center"><div class="text-3xl mb-2">🔒</div><div class="font-bold">' + escapeHTML(msg) + '</div></div>';
   };
   try {
-    if (role === "walisantri" && ["akun", "guru", "sync", "kas", "logwa", "approval"].indexOf(app.page) !== -1) return deny("Halaman ini khusus untuk admin / wali kelas");
-    if (role === "walikelas" && ["akun", "sync", "kas"].indexOf(app.page) !== -1) return deny("Halaman ini khusus untuk admin");
+    if (role === "walisantri" && ["akun", "guru", "sync", "kas", "logwa", "approval", "loglogin"].indexOf(app.page) !== -1) return deny("Halaman ini khusus untuk admin / wali kelas");
+    if (role === "walikelas" && ["akun", "sync", "kas", "loglogin"].indexOf(app.page) !== -1) return deny("Halaman ini khusus untuk admin");
     if (app.page === "dashboard")  return renderDashboard();
     if (app.page === "santri")     return renderSantri();
     if (app.page === "guru")       return renderGuru();
@@ -1252,6 +1317,7 @@ function renderPage() {
     if (app.page === "approval")   return renderApproval();
     if (app.page === "kas")        return renderKas();
     if (app.page === "logwa")      return renderLogWA();
+    if (app.page === "loglogin")   return renderLogLogin();
     if (app.page === "akun")       return renderAkun();
     if (app.page === "sync")       return renderSyncPage();
     return renderDashboard();
@@ -1727,7 +1793,7 @@ window.saveSantri = function() {
   }
   persist();
   autoPush("sync_santri", app.santri);
-  autoPush("sync_pencapaian", app.pencapaian);  // ← FIX: ikut push pencapaian supaya sheet Pencapaian terupdate
+  autoPush("sync_pencapaian", app.pencapaian);
   app.modal = null; renderModal(); render();
 };
 window.deleteSantri = function(id) {
@@ -1745,7 +1811,7 @@ window.setTugasJenis = function(j) { snapshotModalForm(); app.modal.data.jenis =
 window.setTugasStatus = function(s) { snapshotModalForm(); app.modal.data.status = s; var h = document.getElementById("f_tugas_status"); if (h) h.value = s; renderModal(); };
 
 // ============================================================
-// ⭐ LINK AKUN DARI DATA SANTRI (admin)
+// LINK AKUN DARI DATA SANTRI
 // ============================================================
 window.openLinkSantriAkunModal = function(santriId) {
   if (app.currentUser.role !== "admin") { showToast("Hanya admin", "err"); return; }
@@ -1802,7 +1868,7 @@ window.unlinkSantriAkun = function(santriId) {
 };
 
 // ============================================================
-// ⭐ LINK AKUN DARI DATA GURU (admin)
+// LINK AKUN DARI DATA GURU
 // ============================================================
 window.openLinkGuruAkunModal = function(guruId) {
   if (app.currentUser.role !== "admin") { showToast("Hanya admin", "err"); return; }
@@ -2388,6 +2454,118 @@ function renderLogWA() {
 }
 
 // ============================================================
+// LOG LOGIN
+// ============================================================
+function roleBadgeShort(role) {
+  var cls = "bg-gray-100 text-gray-600";
+  if (role === "admin") cls = "bg-purple-100 text-purple-700";
+  else if (role === "walikelas") cls = "bg-teal-100 text-teal-700";
+  else if (role === "walisantri") cls = "bg-blue-100 text-blue-700";
+  return '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + cls + '">' + escapeHTML(role || "-") + '</span>';
+}
+function timeAgo(iso) {
+  if (!iso) return "-";
+  var t = new Date(iso).getTime();
+  if (isNaN(t)) return "-";
+  var diff = Math.floor((Date.now() - t) / 1000);
+  if (diff < 60) return diff + " detik lalu";
+  if (diff < 3600) return Math.floor(diff / 60) + " menit lalu";
+  if (diff < 86400) return Math.floor(diff / 3600) + " jam lalu";
+  return Math.floor(diff / 86400) + " hari lalu";
+}
+function renderLogLogin() {
+  var aktif = app.sessionAktif || [];
+  var logs = (app.logLogin || []).slice().sort(function(a, b) {
+    return String(b.waktu || "").localeCompare(String(a.waktu || ""));
+  });
+  logs = logs.slice(0, 100);
+
+  var onlineRows = aktif.length === 0
+    ? '<div class="p-6 text-center text-gray-400 text-xs">Tidak ada akun aktif saat ini</div>'
+    : aktif.map(function(s) {
+        return '<div class="p-3 border-t flex items-center gap-3 flex-wrap">'
+          + '<div class="flex-1 min-w-[200px]">'
+          +   '<div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-[13px]">' + escapeHTML(s.name || s.username) + '</span>' + roleBadgeShort(s.role) + '<span class="live-dot"></span></div>'
+          +   '<div class="text-[10px] text-gray-500 mt-0.5">@' + escapeHTML(s.username) + (s.kelas ? ' • Kelas ' + escapeHTML(s.kelas) : '') + (s.relasi ? ' • ' + escapeHTML(s.relasi) : '') + '</div>'
+          +   '<div class="text-[10px] text-gray-400 mt-0.5">📱 ' + escapeHTML(s.device || "-") + '</div>'
+          + '</div>'
+          + '<div class="text-right">'
+          +   '<div class="text-[10px] text-gray-400">Sejak</div>'
+          +   '<div class="text-[11px] font-bold text-emerald-600">' + timeAgo(s.waktuLogin) + '</div>'
+          +   '<div class="text-[10px] text-gray-400 mt-0.5">Aktif: ' + timeAgo(s.lastSeen) + '</div>'
+          + '</div>'
+          + '</div>';
+      }).join("");
+
+  var logRows = logs.length === 0
+    ? '<tr><td colspan="5" class="p-6 text-center text-gray-400 text-xs">Belum ada riwayat login</td></tr>'
+    : logs.map(function(l) {
+        var aksiCls = (l.aksi === "login") ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
+        var aksiLabel = (l.aksi === "login") ? "▶ Login" : "⏹ Logout";
+        return '<tr>'
+          + '<td class="text-[11px] whitespace-nowrap">' + fmtTime(l.waktu) + '</td>'
+          + '<td><div class="font-bold text-[12px]">' + escapeHTML(l.name || l.username) + '</div><div class="text-[10px] text-gray-400">@' + escapeHTML(l.username) + '</div></td>'
+          + '<td class="text-center">' + roleBadgeShort(l.role) + '</td>'
+          + '<td class="text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ' + aksiCls + '">' + aksiLabel + '</span></td>'
+          + '<td class="text-[10px] text-gray-500">' + escapeHTML(l.device || "-") + '</td>'
+          + '</tr>';
+      }).join("");
+
+  return '<div class="space-y-4">'
+    + '<div class="flex items-center justify-between flex-wrap gap-2">'
+    +   '<div><h1 class="text-[24px] font-extrabold">Log Login & Akun Aktif</h1><p class="text-[12px] text-gray-500">Monitoring aktivitas login pengguna</p></div>'
+    +   '<button onclick="syncPull()" class="h-10 px-4 rounded-xl bg-[#0F766E] text-white font-bold flex items-center gap-2 text-[12px]">' + ico("refresh", 14) + ' Refresh</button>'
+    + '</div>'
+
+    + '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">'
+    +   statCard("Sedang Online", aktif.length, "bg-emerald-600")
+    +   statCard("Total Log Tersimpan", (app.logLogin || []).length, "bg-[#0F766E]")
+    +   statCard("Login Hari Ini", (app.logLogin || []).filter(function(l){ return l.aksi === "login" && String(l.waktu||"").substring(0,10) === todayISO(); }).length, "bg-blue-600")
+    +   statCard("Logout Hari Ini", (app.logLogin || []).filter(function(l){ return l.aksi === "logout" && String(l.waktu||"").substring(0,10) === todayISO(); }).length, "bg-amber-600")
+    + '</div>'
+
+    + '<div class="bg-white rounded-2xl border overflow-hidden shadow-sm">'
+    +   '<div class="p-3 bg-gray-50 border-b flex items-center justify-between">'
+    +     '<div class="font-bold text-[13px] flex items-center gap-2"><span class="live-dot"></span> 🟢 Akun Sedang Aktif (' + aktif.length + ')</div>'
+    +     '<div class="text-[10px] text-gray-500">Auto-update via heartbeat 2 menit</div>'
+    +   '</div>'
+    +   '<div>' + onlineRows + '</div>'
+    + '</div>'
+
+    + '<div class="bg-white rounded-2xl border overflow-hidden shadow-sm">'
+    +   '<div class="p-3 bg-gray-50 border-b flex items-center justify-between">'
+    +     '<div class="font-bold text-[13px]">📋 Riwayat Login/Logout (100 terakhir)</div>'
+    +     '<button onclick="clearLogLogin()" class="h-8 px-3 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold">Bersihkan</button>'
+    +   '</div>'
+    +   '<div class="overflow-x-auto"><table class="data-table text-[12px]">'
+    +     '<thead><tr><th>Waktu</th><th class="text-left">Pengguna</th><th>Role</th><th>Aksi</th><th>Device</th></tr></thead>'
+    +     '<tbody>' + logRows + '</tbody>'
+    +   '</table></div>'
+    + '</div>'
+    + '</div>';
+}
+
+window.clearLogLogin = function() {
+  if (!confirm("Hapus SEMUA riwayat login di Spreadsheet?\n\n(Tindakan ini tidak bisa dibatalkan)")) return;
+  if (!SYNC.url || SYNC.url.indexOf("GANTI_") === 0) return;
+  showToast("Menghapus riwayat...", "info");
+  fetch(SYNC.url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "clear_log_login", payload: {} }),
+    redirect: "follow"
+  })
+    .then(function(res) { return checkJSONResponse(res, "clear-log"); })
+    .then(function() {
+      app.logLogin = [];
+      persist();
+      showToast("✅ Riwayat login dihapus", "ok");
+      render();
+    })
+    .catch(function(e) { showToast("❌ Gagal: " + e.message, "err"); });
+};
+
+// ============================================================
 // SYNC PAGE
 // ============================================================
 function renderSyncPage() {
@@ -2920,6 +3098,10 @@ function init() {
   }, 60000);
   setInterval(checkMidnightRollover, 30000);
   setInterval(updateRealtimeClock, 1000);
+  // Heartbeat sesi aktif (2 menit)
+  setInterval(function() {
+    if (app.currentUser && !document.hidden) sessionPing();
+  }, 120000);
   updateRealtimeClock();
 }
 
