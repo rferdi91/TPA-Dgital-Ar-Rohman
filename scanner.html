@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scanner TPQ</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: sans-serif; background: #111; color: white; text-align: center; padding: 20px; }
+    #reader { width: 100%; max-width: 400px; margin: 0 auto; border-radius: 10px; overflow: hidden; }
+    .btn { margin-top: 20px; padding: 15px; width: 100%; max-width: 400px; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    #btn-santri { background: #0F766E; color: white; }
+    #btn-guru { background: #3b82f6; color: white; }
+    #status { margin-top: 20px; font-size: 18px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>📷 Scanner Presensi TPQ</h2>
+  <p>Pilih mode lalu arahkan kamera ke QR Code:</p>
+  
+  <button id="btn-santri" class="btn" onclick="mulaiScan('santri')">👦 Mode Santri</button>
+  <button id="btn-guru" class="btn" onclick="mulaiScan('guru')" style="margin-top:10px;">👨‍🏫 Mode Guru</button>
+
+  <div id="reader" style="margin-top:20px;"></div>
+  <div id="status"></div>
+
+  <script>
+    var urlSync = "URL_APPS_SCRIPT_ANDA_DISINI"; // GANTI NANTI
+    var mode = "";
+    var qr = new Html5Qrcode("reader");
+    var sudahScan = false;
+
+    function mulaiScan(m) {
+      mode = m;
+      document.getElementById('btn-santri').style.display = 'none';
+      document.getElementById('btn-guru').style.display = 'none';
+      document.getElementById('status').innerHTML = "Menghidupkan kamera...";
+      
+      qr.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        onScanSuccess
+      ).catch(function(err) {
+        document.getElementById('status').innerHTML = "<span style='color:red'>Gagal: " + err + "</span>";
+      });
+    }
+
+    function onScanSuccess(text) {
+      if (sudahScan) return;
+      sudahScan = true;
+      
+      document.getElementById('status').innerHTML = "⏳ Memproses ID: " + text;
+      var today = new Date().toISOString().split('T')[0];
+      
+      fetch(urlSync, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "add_presensi",
+          payload: { id: text, tanggal: today, type: mode }
+        }),
+        redirect: "follow"
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.ok) {
+          document.getElementById('status').innerHTML = "<span style='color:#10b981'>✅ HADIR: " + res.nama + "</span><br><br><button onclick='location.reload()' style='padding:10px 20px;border-radius:5px;'>Scan Lagi</button>";
+          // Bunyikan beep
+          var ctx = new AudioContext();
+          var osc = ctx.createOscillator();
+          osc.connect(ctx.destination);
+          osc.start();
+          setTimeout(() => osc.stop(), 200);
+        } else {
+          alert("Gagal: " + res.error);
+          sudahScan = false;
+        }
+      })
+      .catch(err => {
+        alert("Error koneksi: " + err);
+        sudahScan = false;
+      });
+    }
+  </script>
+</body>
+</html>
