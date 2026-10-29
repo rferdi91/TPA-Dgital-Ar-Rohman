@@ -8,7 +8,6 @@
 <meta http-equiv="Expires" content="0">
 <title>TPQ Digital v4.3 — TPA Ar-Rahman</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
@@ -368,6 +367,49 @@
   }
   .kartu-footer-left span {
     text-transform: uppercase;
+  }
+
+  /* ===== FOTO UPLOAD WIDGET ===== */
+  .foto-upload-box {
+    background: #f8fcfb;
+    border: 1.5px dashed #99f6e4;
+    border-radius: 12px;
+    padding: 10px;
+  }
+  .foto-preview {
+    width: 64px;
+    height: 80px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #115e59 0%, #831843 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    font-size: 28px;
+  }
+  .foto-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .file-input-btn {
+    font-size: 11px;
+  }
+  .file-input-btn::file-selector-button {
+    margin-right: 8px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 0;
+    background: #0F766E;
+    color: white;
+    font-weight: 700;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .file-input-btn::file-selector-button:hover {
+    background: #0e6b64;
   }
 </style>
 </head>
@@ -1354,9 +1396,6 @@ window.regPickSantriMode = function(m) { if (!app.regForm) return; app.regForm.s
 window.regPickGuruMode = function(m) { if (!app.regForm) return; app.regForm.guruMode = m; if (m === "baru") app.regForm.existingGuruId = ""; render(); };
 window.showAccountList = function() { app.modal = { type: "accountList" }; renderModal(); };
 window.closeModal = function() {
-  if (html5QrCode) {
-    try { html5QrCode.stop().then(function() { html5QrCode.clear(); html5QrCode = null; }).catch(function(){}); } catch (e) {}
-  }
   if (window.qrInstance) {
     try { window.qrInstance.clear(); window.qrInstance = null; } catch(e){}
   }
@@ -2109,7 +2148,15 @@ window.saveSantri = function() {
   if (app.currentUser.role === "walisantri") {
     if (!app.currentUser.santriId || app.currentUser.santriId !== m.data.id) { showToast("Akses ditolak", "err"); return; }
   }
-  var data = { id: g("f_santri_id"), nama: g("f_santri_nama"), kelas: g("f_santri_kelas"), kelamin: g("f_santri_kelamin"), tglLahir: g("f_santri_tglLahir"), goldar: g("f_santri_goldar"), orangTua: g("f_santri_orangTua"), wa: normalizePhone(g("f_santri_wa")), alamat: g("f_santri_alamat"), status: g("f_santri_status"), progress: Number(g("f_santri_progress")) || 0 };
+  var data = {
+    id: g("f_santri_id"), nama: g("f_santri_nama"), kelas: g("f_santri_kelas"),
+    kelamin: g("f_santri_kelamin"), tglLahir: g("f_santri_tglLahir"),
+    goldar: g("f_santri_goldar"), orangTua: g("f_santri_orangTua"),
+    wa: normalizePhone(g("f_santri_wa")), alamat: g("f_santri_alamat"),
+    status: g("f_santri_status"), progress: Number(g("f_santri_progress")) || 0,
+    foto: (m.data.foto || ""),
+    fotoFileId: (m.data.fotoFileId || "")
+  };
   if (!data.nama || !data.orangTua || !data.wa) { showToast("Lengkapi field wajib", "err"); return; }
   if (m.mode === "add") {
     if (app.santri.some(function(s) { return s.id === data.id; })) { showToast("ID sudah ada", "err"); return; }
@@ -2146,6 +2193,91 @@ window.setHafalanSuratStatus = function(s) { snapshotModalForm(); app.modal.data
 window.setHafalanDoaStatus = function(s) { snapshotModalForm(); app.modal.data.status = s; var h = document.getElementById("f_hd_status"); if (h) h.value = s; renderModal(); };
 window.setTugasJenis = function(j) { snapshotModalForm(); app.modal.data.jenis = j; var h = document.getElementById("f_tugas_jenis"); if (h) h.value = j; renderModal(); };
 window.setTugasStatus = function(s) { snapshotModalForm(); app.modal.data.status = s; var h = document.getElementById("f_tugas_status"); if (h) h.value = s; renderModal(); };
+
+// ============================================================
+// UPLOAD & HAPUS FOTO (Santri & Pengajar)
+// ============================================================
+window.uploadFoto = function(id, type, inputEl) {
+  var file = inputEl ? inputEl.files[0] : null;
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { showToast("❌ File harus gambar", "err"); inputEl.value = ""; return; }
+  if (file.size > 2 * 1024 * 1024) { showToast("❌ Maks 2MB", "err"); inputEl.value = ""; return; }
+  if (!SYNC.url || SYNC.url.indexOf("GANTI_") === 0) { showToast("Sync URL belum diset", "err"); return; }
+
+  var statusEl = document.getElementById("upload-status-" + id);
+  if (statusEl) statusEl.innerHTML = '<span class="text-amber-600 font-bold">⏳ Mengupload ke Drive...</span>';
+
+  var reader = new FileReader();
+  reader.onload = function() {
+    var base64 = String(reader.result).split(",")[1];
+    var filename = type + "_" + id + "_" + Date.now() + ".jpg";
+
+    fetch(SYNC.url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "upload_photo",
+        payload: {
+          id: id,
+          type: type,
+          filename: filename,
+          mimeType: file.type || "image/jpeg",
+          base64: base64
+        }
+      }),
+      redirect: "follow"
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var res = (data && data.data) ? data.data : data;
+      if (!res || !res.ok || !res.url) throw new Error((res && res.error) || "Response tidak OK");
+
+      if (type === "santri") {
+        var s = app.santri.find(function(x) { return x.id === id; });
+        if (s) { s.foto = res.url; s.fotoFileId = res.fileId || ""; }
+        saveLS("tpq_santri_v11", app.santri);
+        autoPush("sync_santri", app.santri);
+      } else {
+        var g = app.guru.find(function(x) { return x.id === id; });
+        if (g) { g.foto = res.url; g.fotoFileId = res.fileId || ""; }
+        saveLS("tpq_guru_v11", app.guru);
+        autoPush("sync_guru", app.guru);
+      }
+      if (app.modal && app.modal.data) app.modal.data.foto = res.url;
+
+      var prev = document.getElementById("foto-preview-" + id);
+      if (prev) prev.innerHTML = '<img src="' + escapeHTML(res.url) + '" alt="Foto">';
+      if (statusEl) statusEl.innerHTML = '<span class="text-emerald-600 font-bold">✅ Foto tersimpan di Drive</span>';
+
+      showToast("✅ Foto tersimpan di Google Drive", "ok");
+      renderKeepScroll();
+    })
+    .catch(function(e) {
+      if (statusEl) statusEl.innerHTML = '<span class="text-red-600 font-bold">❌ ' + escapeHTML(e.message || "Gagal") + '</span>';
+      showToast("❌ Upload gagal: " + (e.message || e), "err");
+      console.error("[uploadFoto]", e);
+    });
+  };
+  reader.readAsDataURL(file);
+};
+
+window.hapusFoto = function(id, type) {
+  if (!confirm("Hapus foto ini dari data? (File di Drive tidak dihapus)")) return;
+  if (type === "santri") {
+    var s = app.santri.find(function(x) { return x.id === id; });
+    if (s) { delete s.foto; delete s.fotoFileId; }
+    saveLS("tpq_santri_v11", app.santri);
+    autoPush("sync_santri", app.santri);
+  } else {
+    var g = app.guru.find(function(x) { return x.id === id; });
+    if (g) { delete g.foto; delete g.fotoFileId; }
+    saveLS("tpq_guru_v11", app.guru);
+    autoPush("sync_guru", app.guru);
+  }
+  if (app.modal && app.modal.data) delete app.modal.data.foto;
+  showToast("Foto dihapus dari data", "ok");
+  closeModal();
+};
 
 // ============================================================
 // LINK AKUN DARI DATA SANTRI
@@ -2307,7 +2439,14 @@ window.openGuruModal = function(mode, id) {
 window.saveGuru = function() {
   var g = function(id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; };
   var m = app.modal; if (!m || m.type !== "guru") return;
-  var data = { id: g("f_guru_id"), nama: g("f_guru_nama"), kelas: g("f_guru_kelas"), jk: g("f_guru_jk"), tglLahir: g("f_guru_tglLahir"), jabatan: g("f_guru_jabatan"), pendidikan: g("f_guru_pendidikan"), noHP: normalizePhone(g("f_guru_noHP")), status: g("f_guru_status") };
+  var data = {
+    id: g("f_guru_id"), nama: g("f_guru_nama"), kelas: g("f_guru_kelas"),
+    jk: g("f_guru_jk"), tglLahir: g("f_guru_tglLahir"),
+    jabatan: g("f_guru_jabatan"), pendidikan: g("f_guru_pendidikan"),
+    noHP: normalizePhone(g("f_guru_noHP")), status: g("f_guru_status"),
+    foto: (m.data.foto || ""),
+    fotoFileId: (m.data.fotoFileId || "")
+  };
   if (!data.nama || !data.noHP) { showToast("Lengkapi field", "err"); return; }
   if (m.mode === "add") { app.guru.push(data); showToast("✅ Ditambahkan", "ok"); }
   else { app.guru = app.guru.map(function(x) { return x.id === data.id ? data : x; }); showToast("Disimpan", "ok"); }
@@ -2355,7 +2494,6 @@ function modalKartuAnggotaHTML(sid) {
   var posisi = isGuru ? (data.jabatan || "Pengajar") : ("Kelas " + (data.kelas || "-"));
   var statusText = isGuru ? "PENGAJAR" : "SANTRI";
   
-  // Masa berlaku: 1 tahun terhitung dari tanggal cetak
   var validDate = new Date();
   validDate.setFullYear(validDate.getFullYear() + 1);
   var validText = validDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -2365,7 +2503,6 @@ function modalKartuAnggotaHTML(sid) {
       <div class="bg-white rounded-2xl p-4 max-w-[340px] w-full flex flex-col items-center shadow-2xl" onclick="event.stopPropagation()">
         
         <div class="kartu-container">
-          <!-- HEADER -->
           <div class="kartu-header-baru">
             <div class="kartu-header-left">
               <div class="kartu-header-logo">${renderLogo()}</div>
@@ -2380,7 +2517,6 @@ function modalKartuAnggotaHTML(sid) {
             </div>
           </div>
 
-          <!-- BODY PROFIL -->
           <div class="kartu-body-profil">
             <div class="kartu-foto-baru">
               ${fotoHTML}
@@ -2413,7 +2549,6 @@ function modalKartuAnggotaHTML(sid) {
                   <span class="kartu-detail-label">Alamat</span>
                   <span class="kartu-detail-value">${escapeHTML(data.alamat || "-")}</span>
                 </div>
-                <!-- ✅ MASA AKTIF DIPINDAH KE AREA DATA DIRI -->
                 <div class="kartu-valid-item">
                   <div class="kartu-valid-label">
                     <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2430,7 +2565,6 @@ function modalKartuAnggotaHTML(sid) {
             </div>
           </div>
 
-          <!-- BODY QR -->
           <div class="kartu-body-qr">
             <div class="kartu-qr-box" id="qr-container-${sid}"></div>
             <div class="kartu-btn-scan">
@@ -2440,7 +2574,6 @@ function modalKartuAnggotaHTML(sid) {
             <div class="kartu-scan-info">Arahkan kamera scanner di menu <b>Presensi</b> untuk kehadiran otomatis</div>
           </div>
 
-          <!-- FOOTER -->
           <div class="kartu-footer-baru">
             <div class="kartu-footer-left">
               ${ico("qr", 10)}
@@ -2597,112 +2730,8 @@ window.printKartuAnggota = function(id) {
 };
 
 // ============================================================
-// PRESENSI & BARCODE SCANNER
+// PRESENSI & BARCODE SCANNER (Mengarah ke Netlify)
 // ============================================================
-var html5QrCode = null;
-var recentlyScanned = {};
-
-function playBeep() {
-  try {
-    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    var oscillator = audioCtx.createOscillator();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 1000;
-    oscillator.connect(audioCtx.destination);
-    oscillator.start();
-    setTimeout(function() { oscillator.stop(); }, 150);
-  } catch(e){ console.warn("Audio beep failed", e); }
-}
-
-window.openScannerModal = function() {
-  if (app.currentUser.role === "walisantri") { showToast("🔒", "err"); return; }
-  recentlyScanned = {};
-  app.modal = { type: "scanner" };
-  renderModal();
-};
-
-function startScanner() {
-  if (html5QrCode) return;
-  html5QrCode = new Html5Qrcode("reader");
-  var config = { fps: 10, qrbox: { width: 250, height: 250 } };
-  
-  html5QrCode.start(
-    { facingMode: "environment" },
-    config,
-    function(decodedText, decodedResult) {
-      handleScanSuccess(decodedText);
-    },
-    function(errorMessage) {}
-  ).catch(function(err) {
-    var el = document.getElementById("scan-status");
-    if (el) el.innerHTML = "Gagal mengakses kamera: " + err;
-  });
-}
-
-function handleScanSuccess(id) {
-  var now = Date.now();
-  
-  if (recentlyScanned[id] && now - recentlyScanned[id] < 5000) {
-    return; 
-  }
-
-  var source = app.santri.find(function(s) { return s.id === id; });
-  var isGuru = false;
-  
-  if (!source) {
-    source = app.guru.find(function(g) { return g.id === id; });
-    isGuru = true;
-  }
-  
-  if (!source) {
-    if (!recentlyScanned[id] || now - recentlyScanned[id] > 3000) {
-      showToast("❌ ID " + id + " tidak ditemukan di data Santri/Guru", "err");
-      recentlyScanned[id] = now;
-    }
-    return;
-  }
-
-  recentlyScanned[id] = now;
-
-  var store = isGuru ? app.presensiGuru : app.presensiSantri;
-  if (!store[app.presensiDate]) store[app.presensiDate] = {};
-  
-  store[app.presensiDate][source.id] = {
-    nama: source.nama,
-    kelas: source.kelas,
-    status: "hadir",
-    inputBy: app.currentUser ? app.currentUser.username : "scanner",
-    timestamp: nowISO()
-  };
-
-  persist();
-  autoPush(isGuru ? "sync_presensi_guru" : "sync_presensi_santri", flattenPresensi(isGuru));
-
-  playBeep();
-  if (navigator.vibrate) navigator.vibrate(200);
-  showToast("✅ HADIR: " + source.nama + " (" + (source.kelas || "-") + ")", "ok");
-  renderKeepScroll();
-
-  if (html5QrCode) { 
-    html5QrCode.pause(true); 
-    setTimeout(function(){ 
-      if(html5QrCode) {
-        html5QrCode.resume(); 
-      }
-    }, 2000); 
-  }
-}
-
-function modalScannerHTML() {
-  return '<div class="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 modal-fade"><div class="bg-white rounded-2xl p-5 max-w-[400px] w-full flex flex-col items-center">'
-    + '<div class="flex justify-between items-center w-full mb-3"><div class="font-bold text-[16px]">📷 Scan QR Code Presensi</div><button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button></div>'
-    + '<div class="text-[11px] text-gray-500 mb-4 text-center">Arahkan kamera ke QR Code ID Santri atau Guru. Sistem akan otomatis mencatat kehadiran.</div>'
-    + '<div id="reader" style="width: 100%; max-width: 350px; border-radius: 12px; overflow: hidden;" class="bg-gray-200"></div>'
-    + '<div id="scan-status" class="mt-3 text-[12px] text-red-600 font-bold text-center"></div>'
-    + '<button onclick="closeModal()" class="mt-4 w-full h-11 rounded-xl bg-gray-100 text-gray-700 font-bold">Tutup Kamera</button>'
-    + '</div></div>';
-}
-
 window.switchPresensiTab = function(t) { app.filterPresensi.tab = t; renderKeepScroll(); };
 window.setPresensiKelas = function(k) { app.filterPresensi.kelas = k; renderKeepScroll(); };
 window.togglePresensiKelas = function(k) { app.openPresensiKelas[k] = !app.openPresensiKelas[k]; renderKeepScroll(); };
@@ -2775,9 +2804,13 @@ function renderPresensi() {
     var groupClass = k === "A1" ? "group-a1" : k === "A2" ? "group-a2" : k === "B" ? "group-b" : "group-c";
     return '<div class="bg-white rounded-2xl border overflow-hidden shadow-sm"><div onclick="togglePresensiKelas(\'' + k + '\')" class="' + groupClass + ' p-2.5 flex items-center gap-2 cursor-pointer"><div class="w-8 h-8 rounded-lg bg-[#0F766E] text-white flex items-center justify-center font-extrabold text-xs">' + k + '</div><div class="flex-1"><div class="font-bold text-xs">Kelas ' + k + '</div><div class="text-[10px] text-gray-500">' + items.length + '</div></div><span class="transition-transform text-gray-400 ' + (isOpen ? "rotate-180" : "") + '">' + ico("chevron", 14) + '</span></div>' + (isOpen ? '<div class="border-t">' + rows + '</div>' : '') + '</div>';
   }).join("");
+  
+  // TOMBOL SCAN DIALIHKAN KE NETLIFY
+  var scanLink = '<a href="https://snazzy-sopapillas-134a19.netlify.app" target="_blank" class="h-9 px-3 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center gap-1 hover:bg-indigo-700"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Scan</a>';
+
   return '<div class="space-y-3">'
     + '<h1 class="text-[24px] font-extrabold">Presensi</h1>'
-    + '<div class="bg-white rounded-2xl border p-3 flex items-center gap-2 flex-wrap"><input type="date" value="' + app.presensiDate + '" onchange="setPresensiDate(this.value)" class="flex-1 min-w-[130px] h-9 px-3 rounded-lg border text-sm" /><button onclick="setPresensiDate(todayISO())" class="h-9 px-3 rounded-lg bg-[#0F766E] text-white text-[11px] font-bold">Hari Ini</button><button onclick="openPresensiReportModal()" class="h-9 px-3 rounded-lg bg-blue-600 text-white text-[11px] font-bold flex items-center gap-1">' + ico("printer", 12) + ' Rekap</button><button onclick="openScannerModal()" class="h-9 px-3 rounded-lg bg-indigo-600 text-white text-[11px] font-bold flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Scan</button></div>'
+    + '<div class="bg-white rounded-2xl border p-3 flex items-center gap-2 flex-wrap"><input type="date" value="' + app.presensiDate + '" onchange="setPresensiDate(this.value)" class="flex-1 min-w-[130px] h-9 px-3 rounded-lg border text-sm" /><button onclick="setPresensiDate(todayISO())" class="h-9 px-3 rounded-lg bg-[#0F766E] text-white text-[11px] font-bold">Hari Ini</button><button onclick="openPresensiReportModal()" class="h-9 px-3 rounded-lg bg-blue-600 text-white text-[11px] font-bold flex items-center gap-1">' + ico("printer", 12) + ' Rekap</button>' + scanLink + '</div>'
     + '<div class="flex gap-2"><button onclick="switchPresensiTab(\'santri\')" class="flex-1 h-10 rounded-xl font-bold ' + (tab === "santri" ? "bg-[#0F766E] text-white" : "bg-white border") + '">👦 Santri</button><button onclick="switchPresensiTab(\'guru\')" class="flex-1 h-10 rounded-xl font-bold ' + (tab === "guru" ? "bg-[#0F766E] text-white" : "bg-white border") + '">👨‍🏫 Pengajar</button></div>'
     + '<div class="space-y-2">' + groups + '</div>'
     + '<div class="flex gap-2"><button onclick="setPresensiBulkHadir()" class="h-11 px-4 rounded-xl bg-emerald-500 text-white font-bold text-[12px]">Hadir Semua</button><button onclick="savePresensiAll()" class="flex-1 h-11 bg-[#0F766E] text-white rounded-xl font-bold">Simpan</button></div>'
@@ -3537,6 +3570,21 @@ function modalSantriHTML(m) {
   var jO = ["Laki-laki", "Perempuan"].map(function(k) { return '<option ' + (f.kelamin === k ? "selected" : "") + '>' + k + '</option>'; }).join("");
   var sO = ["Aktif", "Nonaktif", "Lulus", "Pindah"].map(function(k) { return '<option ' + (f.status === k ? "selected" : "") + '>' + k + '</option>'; }).join("");
   var gO = GOLDAR_LIST.map(function(g) { return '<option ' + ((f.goldar || "-") === g ? "selected" : "") + '>' + g + '</option>'; }).join("");
+
+  var fotoPreview = f.foto
+    ? '<img src="' + escapeHTML(f.foto) + '" alt="Foto">'
+    : (getGenderColor(f.kelamin).icon);
+
+  var fotoWidget = '<div class="foto-upload-box">'
+    + '<label class="text-[11px] font-medium text-gray-500 mb-2 block">📷 Foto (opsional, max 2MB)</label>'
+    + '<div class="flex items-center gap-3">'
+    + '<div class="foto-preview" id="foto-preview-' + escapeHTML(f.id) + '">' + fotoPreview + '</div>'
+    + '<div class="flex-1 min-w-0">'
+    + '<input type="file" accept="image/*" onchange="uploadFoto(\'' + escapeHTML(f.id) + '\',\'santri\',this)" class="file-input-btn w-full text-[11px]" />'
+    + '<div id="upload-status-' + escapeHTML(f.id) + '" class="text-[10px] text-gray-500 mt-1">JPG / PNG · Maks 2MB · Tersimpan di Drive</div>'
+    + (f.foto ? '<button type="button" onclick="hapusFoto(\'' + escapeHTML(f.id) + '\',\'santri\')" class="mt-1 text-[10px] font-bold text-red-500 hover:text-red-700">🗑️ Hapus Foto</button>' : '')
+    + '</div></div></div>';
+
   return '<div class="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-0 md:p-4 modal-fade"><div class="bg-white w-full max-w-[520px] rounded-t-2xl md:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto modal-slide">'
     + '<div class="flex justify-between items-center mb-1"><div class="font-bold text-[16px]">' + (isEdit ? "✏️ Edit Santri" : "➕ Tambah Santri") + '</div><button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">No ID</label><input id="f_santri_id" value="' + escapeHTML(f.id) + '" readonly class="w-full h-10 px-3 rounded-xl border bg-gray-50 text-gray-500 font-mono text-sm" /></div>'
@@ -3546,11 +3594,27 @@ function modalSantriHTML(m) {
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Nama Orang Tua *</label><input id="f_santri_orangTua" value="' + escapeHTML(f.orangTua) + '" class="w-full h-10 px-3 rounded-xl border text-sm" /></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">No WA * (+62)</label><input id="f_santri_wa" type="tel" value="' + escapeHTML(f.wa) + '" placeholder="+62 812-3456-7890" class="w-full h-10 px-3 rounded-xl border text-sm" /></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Alamat</label><textarea id="f_santri_alamat" rows="2" class="w-full p-3 rounded-xl border text-sm">' + escapeHTML(f.alamat) + '</textarea></div>'
+    + fotoWidget
     + '<div class="grid grid-cols-2 gap-3"><div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Status</label><select id="f_santri_status" ' + (isWali ? 'disabled' : '') + ' class="w-full h-10 px-3 rounded-xl border text-sm' + (isWali ? ' bg-gray-50' : '') + '">' + sO + '</select></div><div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Progress %</label><input id="f_santri_progress" type="number" value="' + (Number(f.progress) || 0) + '" ' + (isWali ? 'readonly' : '') + ' class="w-full h-10 px-3 rounded-xl border text-sm' + (isWali ? ' bg-gray-50' : '') + '" /></div></div>'
     + '<div class="flex gap-2 pt-2"><button onclick="closeModal()" class="flex-1 h-11 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold">Batal</button><button onclick="saveSantri()" class="flex-1 h-11 rounded-xl bg-[#0F766E] text-white font-bold">Simpan</button></div></div></div>';
 }
 function modalGuruHTML(m) {
   var f = m.data; var isEdit = m.mode === "edit";
+
+  var fotoPreview = f.foto
+    ? '<img src="' + escapeHTML(f.foto) + '" alt="Foto">'
+    : '🧑‍🏫';
+
+  var fotoWidget = '<div class="foto-upload-box">'
+    + '<label class="text-[11px] font-medium text-gray-500 mb-2 block">📷 Foto (opsional, max 2MB)</label>'
+    + '<div class="flex items-center gap-3">'
+    + '<div class="foto-preview" id="foto-preview-' + escapeHTML(f.id) + '">' + fotoPreview + '</div>'
+    + '<div class="flex-1 min-w-0">'
+    + '<input type="file" accept="image/*" onchange="uploadFoto(\'' + escapeHTML(f.id) + '\',\'guru\',this)" class="file-input-btn w-full text-[11px]" />'
+    + '<div id="upload-status-' + escapeHTML(f.id) + '" class="text-[10px] text-gray-500 mt-1">JPG / PNG · Maks 2MB · Tersimpan di Drive</div>'
+    + (f.foto ? '<button type="button" onclick="hapusFoto(\'' + escapeHTML(f.id) + '\',\'guru\')" class="mt-1 text-[10px] font-bold text-red-500 hover:text-red-700">🗑️ Hapus Foto</button>' : '')
+    + '</div></div></div>';
+
   return '<div class="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center p-0 md:p-4 modal-fade"><div class="bg-white w-full max-w-[480px] rounded-t-2xl md:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto modal-slide">'
     + '<div class="flex justify-between items-center mb-1"><div class="font-bold text-[16px]">' + (isEdit ? "✏️ Edit" : "➕ Tambah") + ' Pengajar</div><button onclick="closeModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">' + ico("x", 16) + '</button></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">ID</label><input id="f_guru_id" value="' + escapeHTML(f.id) + '" readonly class="w-full h-10 px-3 rounded-xl border bg-gray-50 font-mono text-sm" /></div>'
@@ -3560,6 +3624,7 @@ function modalGuruHTML(m) {
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Pendidikan</label><select id="f_guru_pendidikan" class="w-full h-10 px-3 rounded-xl border text-sm">' + PENDIDIKAN_LIST.map(function(p) { return '<option ' + ((f.pendidikan || "-") === p ? "selected" : "") + '>' + p + '</option>'; }).join("") + '</select></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">No HP * (+62)</label><input id="f_guru_noHP" type="tel" value="' + escapeHTML(f.noHP) + '" placeholder="+62 812-3456-7890" class="w-full h-10 px-3 rounded-xl border text-sm" /></div>'
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Tgl Lahir</label><input id="f_guru_tglLahir" type="date" value="' + (f.tglLahir || "").substring(0, 10) + '" class="w-full h-10 px-3 rounded-xl border text-sm" /></div>'
+    + fotoWidget
     + '<div><label class="text-[11px] font-medium text-gray-500 mb-1 block">Status</label><select id="f_guru_status" class="w-full h-10 px-3 rounded-xl border text-sm">' + ["Aktif","Nonaktif"].map(function(k) { return '<option ' + (f.status === k ? "selected" : "") + '>' + k + '</option>'; }).join("") + '</select></div>'
     + '<div class="flex gap-2 pt-2"><button onclick="closeModal()" class="flex-1 h-11 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold">Batal</button><button onclick="saveGuru()" class="flex-1 h-11 rounded-xl bg-[#0F766E] text-white font-bold">Simpan</button></div></div></div>';
 }
